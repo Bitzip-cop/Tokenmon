@@ -49,11 +49,11 @@ const PRELOAD = join(__dirname, '../preload/index.js');
 const FRAME_W = 192;
 const FRAME_H = 208;
 const PET_SCALE = Math.min(1.2, Math.max(0.3, Number(process.env.TOKENMON_PET_SCALE) || 0.55));
-const OVERLAY_W = Math.max(Math.round(FRAME_W * PET_SCALE) + 28, 176); // 精灵宽 + 边距,且容得下 hover 面板的最宽一行(缓存/额度,免截断)
+const OVERLAY_W = Math.max(Math.round(FRAME_W * PET_SCALE) + 28, 212); // 精灵宽 + 边距,且容得下 hover 面板最宽行(英文 Cache/Quota ≈17 字符值,免截断)
 const OVERLAY_H = Math.round(FRAME_H * PET_SCALE) + 42; // 精灵高 + HUD + 间距(折叠态)
 /** 「今日用量」面板所需高度。窗口**固定**为 OVERLAY_H + 此值,面板用 CSS :hover 显隐、**不 resize**
  *  (macOS 上 transparent 窗口 setBounds 后会丢透明、露白底;故宁可固定高度 + 下方留一段透明)。 */
-const OVERLAY_EXPAND = 132; // 容下 hover 面板(今日用量 + 成本/额度行)
+const OVERLAY_EXPAND = 140; // 容下 hover 面板(Today + Cost/Quota 行,底部留点空)
 const OVERLAY_GAP = 12; // 多只宠物并排时的间距
 
 export function createPetOverlay(source: PetSourceId = 'claude', index = 0): BrowserWindow {

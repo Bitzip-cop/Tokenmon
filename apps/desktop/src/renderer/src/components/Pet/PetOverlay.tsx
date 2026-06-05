@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PetSprite } from './PetSprite';
 import { MoodIcon } from './MoodIcon';
+import { modelLabel } from '@shared/pet-usage';
 import { makeConfig, BUNDLED_SPRITES, DEFAULT_CHARACTER, SOURCE_LABEL } from './pets';
 import type { PetState } from '@shared/types/pet';
 import type { PetUsageSnapshot, PetSourceId, CharacterMapping } from '@shared/pet-usage';
@@ -58,6 +59,7 @@ export function PetOverlay({ scale = 0.55, source = 'claude' }: { scale?: number
   const spriteUrl = BUNDLED_SPRITES[id] ?? diskSprite ?? BUNDLED_SPRITES[DEFAULT_CHARACTER[source]];
   const config = useMemo(() => makeConfig(id, spriteUrl, mapping), [id, spriteUrl, mapping]);
   const label = SOURCE_LABEL[source];
+  const currentModel = modelLabel(usage?.lastModel ?? null);
 
   useEffect(() => {
     void window.tokenmon.invoke('pet:watch', { source });
@@ -96,8 +98,11 @@ export function PetOverlay({ scale = 0.55, source = 'claude' }: { scale?: number
       <div className="petoverlay__pet">
         <PetSprite config={config} state={state} mood={usage?.mood} scale={scale} />
       </div>
-      {/* agent 名单独一行在上;消耗数据(心情 + 今日成本)单独一条在下;hover 再展开「今日用量」。 */}
-      <div className="petoverlay__name">{label}</div>
+      {/* agent 名 + 当前模型(最近一笔用量的)一行在上;消耗数据单独一条在下;hover 再展开「今日用量」。 */}
+      <div className="petoverlay__name">
+        {label}
+        {currentModel && <span className="petoverlay__modelTag"> · {currentModel}</span>}
+      </div>
       {usage && (
         <div className="petoverlay__hud">
           <MoodIcon mood={usage.mood} />

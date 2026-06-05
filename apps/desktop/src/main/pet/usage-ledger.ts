@@ -67,11 +67,17 @@ function safeMtime(file: string): number {
     return 0;
   }
 }
-/** 扫最近若干会话文件的尾部(只读尾巴,便宜):取"最后一次有 output 的时间戳" + "最新的真实额度"。供基线/迁移用。 */
+/** 扫最近若干会话文件的尾部(只读尾巴,便宜):取"最后产出时刻"+"最新真实额度"+"最近模型"。供基线/迁移用。 */
 function scanTail(
   root: string,
   source: PetSource
-): { lastOutputTs: string | null; lastQuota: PetQuota | null; lastQuotaTs: string | null } {
+): {
+  lastOutputTs: string | null;
+  lastQuota: PetQuota | null;
+  lastQuotaTs: string | null;
+  lastModel: string | null;
+  lastModelTs: string | null;
+} {
   const files = source
     .listFiles(root)
     .map((f) => ({ f, m: safeMtime(f) }))
@@ -81,21 +87,33 @@ function scanTail(
   let lastOutputTs: string | null = null;
   let lastQuota: PetQuota | null = null;
   let lastQuotaTs: string | null = null;
+  let lastModel: string | null = null;
+  let lastModelTs: string | null = null;
   for (const f of files) {
     const size = safeSize(f);
     if (size < 0) continue;
     const text = readRange(f, Math.max(0, size - 131072), size); // 尾部 128KB
+    let curModel: string | null = null; // 文件内顺序读:Codex turn_context 声明此后用量的模型
     for (const line of text.split('\n')) {
       const u = source.parseLine(line);
-      if (!u || u.kind !== 'usage') continue;
+      if (!u) continue;
+      if (u.kind === 'model') {
+        curModel = u.model;
+        continue;
+      }
       if (u.totals.output > 0 && u.ts && (!lastOutputTs || u.ts > lastOutputTs)) lastOutputTs = u.ts;
       if (u.quota && u.ts && (!lastQuotaTs || u.ts > lastQuotaTs)) {
         lastQuota = u.quota;
         lastQuotaTs = u.ts;
       }
+      const eff = u.model ?? curModel;
+      if (eff && u.ts && (!lastModelTs || u.ts > lastModelTs)) {
+        lastModel = eff;
+        lastModelTs = u.ts;
+      }
     }
   }
-  return { lastOutputTs, lastQuota, lastQuotaTs };
+  return { lastOutputTs, lastQuota, lastQuotaTs, lastModel, lastModelTs };
 }
 
 export class UsageLedger {
@@ -117,12 +135,16 @@ export class UsageLedger {
     if (raw) {
       try {
         const s = JSON.parse(raw) as UsageLedgerState;
-        if (s.lastOutputTs === undefined || s.lastQuota === undefined) {
-          const t = scanTail(this.root, this.source); // 旧账本迁移:补心情(最后产出)/额度所需的尾部状态
+        if (s.lastOutputTs === undefined || s.lastQuota === undefined || s.lastModel === undefined) {
+          const t = scanTail(this.root, this.source); // 旧账本迁移:补心情(最后产出)/额度/最近模型的尾部状态
           if (s.lastOutputTs === undefined) s.lastOutputTs = t.lastOutputTs;
           if (s.lastQuota === undefined) {
             s.lastQuota = t.lastQuota;
             s.lastQuotaTs = t.lastQuotaTs;
+          }
+          if (s.lastModel === undefined) {
+            s.lastModel = t.lastModel;
+            s.lastModelTs = t.lastModelTs;
           }
         }
         if (!Array.isArray(s.countedIds)) s.countedIds = []; // 旧账本迁移:去重键集合
@@ -146,6 +168,8 @@ export class UsageLedger {
     led.lastOutputTs = t.lastOutputTs;
     led.lastQuota = t.lastQuota;
     led.lastQuotaTs = t.lastQuotaTs;
+    led.lastModel = t.lastModel;
+    led.lastModelTs = t.lastModelTs;
     this.store.set(this.source.ledgerKey, JSON.stringify(led));
     log.info('usage ledger baselined', {
       source: this.source.id,
@@ -186,11 +210,14 @@ export class UsageLedger {
         if (u.id && seen.has(u.id)) continue; // 同一 message 多行 usage:已计过 → 跳过(成本/喂养都不重复)
         if (u.id) seen.add(u.id);
         // 逐条计价:Claude 行自带 model;Codex 用文件级 curModel。该源不按美元算(pricing=null)则成本恒 0。
-        const cost = this.source.pricing
-          ? costUSD(u.totals, pricingForModel(this.source.id, u.model ?? curModel))
-          : 0;
+        const eff = u.model ?? curModel;
+        const cost = this.source.pricing ? costUSD(u.totals, pricingForModel(this.source.id, eff)) : 0;
         applyUsage(this.state, u.totals, dayKeyOf(u.ts, this.now()), u.ts, cost);
         newOutput += u.totals.output;
+        if (eff && eff !== '<synthetic>' && u.ts && (!this.state.lastModelTs || u.ts >= this.state.lastModelTs)) {
+          this.state.lastModel = eff; // 最近一笔用量的模型(HUD 名字行)
+          this.state.lastModelTs = u.ts;
+        }
         if (u.quota && u.ts && (!this.state.lastQuotaTs || u.ts >= this.state.lastQuotaTs)) {
           this.state.lastQuota = u.quota; // 取最新 ts 的真实额度(Codex)
           this.state.lastQuotaTs = u.ts;
@@ -211,6 +238,7 @@ export class UsageLedger {
     petStartDate: string;
     lastOutputTs: string | null;
     lastQuota: PetQuota | null;
+    lastModel: string | null;
   } {
     const todayKey = dayKeyOf(null, this.now());
     return {
@@ -221,7 +249,8 @@ export class UsageLedger {
       allTimeCostUSD: this.state.allTimeCostUSD ?? 0,
       petStartDate: this.state.petStartDate,
       lastOutputTs: this.state.lastOutputTs,
-      lastQuota: this.state.lastQuota ?? null
+      lastQuota: this.state.lastQuota ?? null,
+      lastModel: this.state.lastModel ?? null
     };
   }
 }
@@ -267,7 +296,7 @@ export class PetUsageService {
       const newOutput = this.ledger.ingest();
       const now = this.now();
       if (newOutput > 0) this.eating.fed(now);
-      const { today, allTime, todayCostUSD, allTimeCostUSD, petStartDate, lastOutputTs, lastQuota } =
+      const { today, allTime, todayCostUSD, allTimeCostUSD, petStartDate, lastOutputTs, lastQuota, lastModel } =
         this.ledger.snapshot();
       const parsed = lastOutputTs ? Date.parse(lastOutputTs) : NaN;
       const lastOutputMs = Number.isNaN(parsed) ? null : parsed;
@@ -282,7 +311,8 @@ export class PetUsageService {
         petStartDate,
         source: this.source.id,
         quota: lastQuota,
-        showCost: this.source.pricing != null
+        showCost: this.source.pricing != null,
+        lastModel
       });
     } catch (e) {
       log.warn('pet usage tick failed', { source: this.source.id, message: String(e).slice(0, 160) });

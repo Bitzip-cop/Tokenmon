@@ -4,6 +4,13 @@
 
 ## [unreleased]
 
+### 0.76 — v0.1.2:Template 托盘图标、hover 面板修复、名牌带当前模型、review 修复(2026-06-05)
+- **菜单栏图标换 Codex 设计的小怪兽头**(assets/tray.svg):Template 规范(纯黑+alpha,深浅色自适应),墨水高规格化 16pt 与系统图标对齐;`?asset` 双分辨率(hash 文件名破坏 @2x 邻居约定 → `addRepresentation` 手挂 1x/2x)+ `setTemplateImage`。
+- **hover 面板截断修复**(验收发现):英文化后 Cache/Quota 行(≈17 字符值)超宽 —— 窗口最小宽 176→212、面板 max-width 190→200、面板区高 132→140。
+- **名牌带当前模型**:`Claude · Opus 4.8` / `Codex · GPT-5.5` —— 账本新增 lastModel(按 ts 取最近一笔用量的模型,scanTail 基线/迁移补齐),`modelLabel()` 美化展示名;切模型名牌跟着变。
+- **Codex review 修复**:① Re-open pets/activate 改幂等(按 petWindows 逐源补缺,不再看全局窗口数 —— 之前单只宠被关或开着设置窗时 no-op);② `LSUIElement: true` 写明菜单栏 utility 定位(消除启动时 Dock 闪现);③ PetOverlay 的 modelLabel 提前求值去重。
+- 版本 0.1.1 → 0.1.2。验证:typecheck + 56 单测 + build/dist 全绿,LSUIElement 入 plist;Codex 侧独立验证 codesign/hdiutil/asar unpack 通过。
+
 ### 0.75 — v0.1.1:菜单栏托盘图标 + 右键 Quit(修"无法退出")(2026-06-05)
 - 验收发现:桌宠为了浮在全屏 app 之上(`visibleOnFullScreen`),Electron 会隐藏 Dock 图标 → 没有 Dock、没有应用菜单,右键菜单又没有退出项,**用户只能去活动监视器杀进程**。
 - 修复:① **菜单栏托盘图标**(clawd 像素小图标,`?asset` 经 electron-vite 打进 out):Re-open pets + Quit Tokenmon;② 桌宠**右键菜单底部加 Quit Tokenmon**。

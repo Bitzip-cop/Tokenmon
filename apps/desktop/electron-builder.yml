@@ -13,6 +13,8 @@ npmRebuild: false # postinstall 已用 @electron/rebuild 按 Electron ABI 编好
 mac:
   category: public.app-category.developer-tools
   icon: build/icon.png
+  extendInfo:
+    LSUIElement: true # 菜单栏/桌宠 utility:不进 Dock 和 ⌘Tab(运行时本就被 visibleOnFullScreen 隐藏,这里写明意图、消除启动闪现)
   target:
     - target: dmg
       arch: [arm64]

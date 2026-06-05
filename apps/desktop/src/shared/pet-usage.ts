@@ -198,6 +198,18 @@ export function pricingFor(model: string | null): Pricing {
   return pricingForModel('claude', model);
 }
 
+/**
+ * 模型展示名(HUD 名字行用):`claude-opus-4-8` → `Opus 4.8`、`claude-haiku-4-5-20251001` → `Haiku 4.5`、
+ * `gpt-5.5` → `GPT-5.5`;`<synthetic>` → null(不展示);其余原样。
+ */
+export function modelLabel(model: string | null): string | null {
+  if (!model || model === '<synthetic>') return null;
+  const claude = model.match(/^claude-(opus|sonnet|haiku)-(\d+)-(\d+)/);
+  if (claude) return `${claude[1][0].toUpperCase()}${claude[1].slice(1)} ${claude[2]}.${claude[3]}`;
+  if (/^gpt-/i.test(model)) return `GPT-${model.slice(4)}`; // gpt-5.5 → GPT-5.5(后缀如 -mini 保持原样)
+  return model;
+}
+
 /** 合计成本($)。**不含 cache_read**(对订阅用户那是免费重读上下文)——只算 in+out+cacheWrite。 */
 export function costUSD(t: TokenTotals, p: Pricing): number {
   return (t.input * p.input + t.output * p.output + t.cacheWrite * p.cacheWrite) / 1_000_000;
@@ -322,6 +334,9 @@ export interface UsageLedgerState {
   byDayCost?: Record<string, number>;
   /** 文件 → 最近声明的模型(Codex turn_context;跨 tick 持久,后续 token_count 按此计价)。 */
   fileModels?: Record<string, string>;
+  /** 最近一笔用量的模型(按 ts 取最新;HUD 名字行展示「Claude · Opus 4.8」用)。 */
+  lastModel?: string | null;
+  lastModelTs?: string | null;
 }
 
 /** 推给渲染层的消耗快照(账本数字 + 实时心情)。 */
@@ -340,6 +355,8 @@ export interface PetUsageSnapshot {
   quota: PetQuota | null;
   /** 是否展示美元成本(该源有单价才 true;Codex 单价未定 → false,改看 token/额度)。 */
   showCost: boolean;
+  /** 最近一笔用量的模型(原始 id;渲染层用 modelLabel 美化;null = 暂未知)。 */
+  lastModel: string | null;
 }
 
 export function emptyLedger(startDate: string): UsageLedgerState {
@@ -354,7 +371,9 @@ export function emptyLedger(startDate: string): UsageLedgerState {
     lastQuotaTs: null,
     allTimeCostUSD: 0,
     byDayCost: {},
-    fileModels: {}
+    fileModels: {},
+    lastModel: null,
+    lastModelTs: null
   };
 }
 

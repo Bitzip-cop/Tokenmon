@@ -8,6 +8,7 @@ import {
   costBreakdown,
   pricingFor,
   pricingForModel,
+  modelLabel,
   dayKeyOf,
   moodFromActivity,
   MOOD_HAPPY_WITHIN_MS,
@@ -98,6 +99,17 @@ describe('addTotals / costUSD / pricingFor', () => {
     expect(pricingFor('claude-sonnet-4-6').output).toBe(15);
     expect(pricingFor(null).output).toBe(25); // 默认 opus 现价
     expect(pricingFor('<synthetic>').output).toBe(25); // 未知 → 兜底(usage 通常为 0,无实际影响)
+  });
+
+  it('modelLabel:模型 id → 展示名', () => {
+    expect(modelLabel('claude-opus-4-8')).toBe('Opus 4.8');
+    expect(modelLabel('claude-sonnet-4-6')).toBe('Sonnet 4.6');
+    expect(modelLabel('claude-haiku-4-5-20251001')).toBe('Haiku 4.5'); // 日期后缀丢弃
+    expect(modelLabel('gpt-5.5')).toBe('GPT-5.5');
+    expect(modelLabel('gpt-5.4-mini')).toBe('GPT-5.4-mini');
+    expect(modelLabel('codex-auto-review')).toBe('codex-auto-review'); // 未识别原样
+    expect(modelLabel('<synthetic>')).toBeNull();
+    expect(modelLabel(null)).toBeNull();
   });
 
   it('Codex 按版本独立定价:gpt-5.5 $5/$30、gpt-5.4 减半、5.4-mini 更低;未知按 5.5 兜底', () => {

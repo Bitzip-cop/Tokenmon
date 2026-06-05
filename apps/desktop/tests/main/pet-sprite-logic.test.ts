@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveRow, framesForRow, fpsForMood } from '../../src/renderer/src/components/Pet/sprite-logic';
+import { resolveRow, framesForRow, fpsForMood, FlourishScheduler } from '../../src/renderer/src/components/Pet/sprite-logic';
 
 const rows = {
   stateRows: { idle: 0, talking: 1, working: 2, waiting: 3 },
@@ -47,5 +47,33 @@ describe('fpsForMood(难过减速 = 蔫)', () => {
     expect(fpsForMood(6, 'eating')).toBe(6);
     expect(fpsForMood(6, undefined)).toBe(6);
     expect(fpsForMood(1, 'sad')).toBe(1);
+  });
+});
+
+describe('FlourishScheduler(自发闲置动画)', () => {
+  const dur = (): number => 2000; // 每次耍宝固定 2s,便于断言
+  it('闲着时:先按随机间隔排期,到点播随机行,播完回 null 再重新排期', () => {
+    // rand 恒 0 → 间隔恒 minGap(20s)、选行恒取 rows[0]
+    const f = new FlourishScheduler(20_000, 50_000, () => 0);
+    const rows = [7, 8];
+    expect(f.current(0, true, rows, dur)).toBeNull(); // 第一帧:排期
+    expect(f.current(19_999, true, rows, dur)).toBeNull(); // 没到点
+    expect(f.current(20_000, true, rows, dur)).toBe(7); // 到点开耍
+    expect(f.current(21_999, true, rows, dur)).toBe(7); // 耍宝中(2s 内)
+    expect(f.current(22_000, true, rows, dur)).toBeNull(); // 播完回常态 + 重新排期
+    expect(f.current(42_000, true, rows, dur)).toBe(7); // 下一轮到点
+  });
+  it('忙起来(calm=false)立即取消耍宝并重置计时', () => {
+    const f = new FlourishScheduler(20_000, 50_000, () => 0);
+    f.current(0, true, [7], dur);
+    expect(f.current(20_000, true, [7], dur)).toBe(7); // 耍宝中
+    expect(f.current(20_500, false, [7], dur)).toBeNull(); // 突然忙了 → 立即停
+    expect(f.current(21_000, true, [7], dur)).toBeNull(); // 回闲:重新从排期开始
+    expect(f.current(41_000, true, [7], dur)).toBe(7);
+  });
+  it('无候选行 → 永远 null', () => {
+    const f = new FlourishScheduler(20_000, 50_000, () => 0);
+    expect(f.current(0, true, [], dur)).toBeNull();
+    expect(f.current(100_000, true, [], dur)).toBeNull();
   });
 });

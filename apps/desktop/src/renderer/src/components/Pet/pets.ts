@@ -24,6 +24,8 @@ export interface PetConfig {
   stateRows: Record<PetState, number>;
   /** 心情 → 行号(闲下来按喂养心情用)。 */
   moodRows: Record<PetMood, number>;
+  /** 自发闲置动画的候选行(闲着时偶尔随机播一轮;排除吃/难过等带语义的行)。 */
+  flourishRows?: number[];
 }
 
 // codex-pets 网格(8列×9行,帧 192×208;各行真实帧数逐像素分析得)。所有 codex-pets 同款,只换精灵表。
@@ -35,9 +37,11 @@ export const GRID: Omit<PetConfig, 'name' | 'spritesheet'> = {
   fps: 6,
   frameW: 192,
   frameH: 208,
-  stateRows: { idle: 0, talking: 1, working: 2, waiting: 3 },
-  // 心情→行(无明显喜怒脸,用最贴动作 + 难过叠灰度/半速,见 PetSprite):吃=4 开心=7 闲=0 难过=5。
-  moodRows: { eating: 4, happy: 7, idle: 0, sad: 5 }
+  // clawd 实际行语义(逐帧看图定):0=耳机闲 1/2/7=滑板系 3=安全帽扳手 4=吃 5=难过趴 6=趴甩尾 8=侦探放大镜。
+  // 旧映射把 talking(1)/working(2)/happy(7) 全配进滑板系 → 观感"只会玩滑板";现在尽量一态一景。
+  stateRows: { idle: 0, talking: 1, working: 3, waiting: 8 },
+  moodRows: { eating: 4, happy: 7, idle: 0, sad: 5 },
+  flourishRows: [1, 2, 3, 6, 7, 8] // 闲着时偶尔随机耍一轮(不含吃/难过)
 };
 
 /** 用指定精灵表(打包 URL 或 data URL)拼一个形象配置;mapping 给定时覆盖默认行映射。 */

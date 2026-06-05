@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'react';
 import type { PetConfig, PetState } from './pets';
 import type { PetMood } from '@shared/pet-usage';
-import { resolveRow, framesForRow, fpsForMood } from './sprite-logic';
+import { resolveRow, framesForRow, fpsForMood, FlourishScheduler } from './sprite-logic';
 
 // 图片按 URL 缓存,避免每次挂载/换态重新加载。
 const cache: Record<string, HTMLImageElement> = {};
@@ -34,6 +34,10 @@ export function PetSprite({
   // 心情放 ref:用于难过减速;变化只更新 ref、不重建动画循环。
   const moodRef = useRef(mood);
   moodRef.current = mood;
+  // 闲着(idle 态 + 开心/闲心情)= 可以自发耍宝;吃/忙/难过时不打断。
+  const calmRef = useRef(false);
+  calmRef.current = state === 'idle' && (mood === 'happy' || mood === 'idle' || mood === undefined);
+  const flourishRef = useRef(new FlourishScheduler());
 
   // 动画循环只随 config 建一次(state/mood 通过 rowRef 实时读)。
   useEffect(() => {
@@ -52,7 +56,14 @@ export function PetSprite({
     const draw = (t: number): void => {
       raf = requestAnimationFrame(draw);
       if (!img.complete || img.naturalWidth === 0) return; // 等图加载
-      const row = rowRef.current; // resolveRow 保证是合法整数行(绝不 undefined)
+      // 闲着时偶尔自发播一轮随机动作(flourish);其余时间播常态行。
+      const flourish = flourishRef.current.current(
+        t,
+        calmRef.current,
+        config.flourishRows ?? [],
+        (r) => (2 * Math.max(1, framesForRow(config, r)) * 1000) / config.fps // 播两轮
+      );
+      const row = flourish ?? rowRef.current; // resolveRow 保证是合法整数行(绝不 undefined)
       const frames = Math.max(1, framesForRow(config, row)); // 该行真实帧数(≥1,防 %0),杜绝循环到尾部空帧
       let dirty = false;
       if (row !== lastRow) {

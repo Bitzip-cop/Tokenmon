@@ -267,8 +267,8 @@ export interface PetQuota {
 /** 刚喂过多久内算"正在吃"(应 > 摄取 tick,使连续产出时持续显示吃)。 */
 export const PET_EAT_WINDOW_MS = 3000;
 
-/** 距上次产出在此之内 = 开心(默认 30 分钟)。 */
-export const MOOD_HAPPY_WITHIN_MS = 30 * 60_000;
+/** 距上次产出在此之内 = 开心(默认 10 分钟;太长会让 idle 行——如 clawd 的耳机——几乎永远轮不到)。 */
+export const MOOD_HAPPY_WITHIN_MS = 10 * 60_000;
 /** 距上次产出超过此值 = 难过(默认 2 天)。 */
 export const MOOD_SAD_AFTER_MS = 48 * 60 * 60_000;
 

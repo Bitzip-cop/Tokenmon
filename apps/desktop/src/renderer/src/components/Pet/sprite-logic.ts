@@ -41,3 +41,40 @@ export function framesForRow(cfg: SpriteFrames, row: number): number {
 export function fpsForMood(baseFps: number, mood?: PetMood): number {
   return mood === 'sad' ? Math.max(1, baseFps / 2) : baseFps;
 }
+
+/**
+ * 自发闲置动画(flourish):闲着(calm)时每隔 minGap~maxGap 随机播一轮别的动作,播完回常态。
+ * 解决"桌宠看起来只会一个动作"——多数时间在 idle/happy,其余行根本轮不到。
+ * t/rand 注入 → 纯逻辑可单测。忙起来(calm=false)立即取消并重置计时。
+ */
+export class FlourishScheduler {
+  private row = -1;
+  private until = 0; // 当前 flourish 播到何时(t)
+  private nextAt = 0; // 下一次 flourish 何时触发(0=未排期)
+  constructor(
+    private readonly minGapMs = 20_000,
+    private readonly maxGapMs = 50_000,
+    private readonly rand: () => number = Math.random
+  ) {}
+
+  /** 每帧调用:返回当前应播的 flourish 行;null = 播常态行。 */
+  current(t: number, calm: boolean, rows: number[], durationFor: (row: number) => number): number | null {
+    if (!calm || rows.length === 0) {
+      this.until = 0;
+      this.nextAt = 0;
+      return null;
+    }
+    if (t < this.until) return this.row; // 正在耍宝
+    if (this.nextAt === 0) {
+      this.nextAt = t + this.minGapMs + this.rand() * (this.maxGapMs - this.minGapMs);
+      return null;
+    }
+    if (t >= this.nextAt) {
+      this.row = rows[Math.floor(this.rand() * rows.length)] ?? rows[0];
+      this.until = t + Math.max(500, durationFor(this.row));
+      this.nextAt = 0; // 播完后下一帧重新排期
+      return this.row;
+    }
+    return null;
+  }
+}

@@ -4,6 +4,14 @@
 
 ## [unreleased]
 
+### 0.77 — 动作多样性:重排 clawd 默认映射 + 自发闲置动画 + happy 窗口缩短(2026-06-05)
+- 用户反馈"只会玩滑板、耳机动作没见过"。逐帧核对 clawd 行语义:**滑板有三行(1/2/7)**,旧映射把 talking(1)/working(2)/happy(7) 全配进滑板系;耳机(0)配给 mood=idle 但 happy 窗口 30 分钟 → 工作日几乎永远轮不到。机制本身(watcher/优先级/渲染)验证无 bug。
+- **重排默认映射**:working→3(安全帽扳手)、waiting→8(侦探放大镜);talking=1、happy=7(滑板保留一份)。
+- **自发闲置动画**:`FlourishScheduler`(纯逻辑+单测)——闲着(idle 态 + happy/闲心情)每 20~50s 随机播一轮 flourish 行(1/2/3/6/7/8,不含吃/难过),播两轮回常态;忙起来立即取消。
+- **happy 窗口 30→10 分钟**:耳机 idle 行更容易出现。
+- 数据侧排查记录:i-rocky 等生成形象行间差异天然小(9 行近乎同款),帧数表与 codex-pets 标准网格一致、无错位;Codex 宠暂无活动态来源(会话解析只做了 Claude),只有心情维度。
+- 验证:typecheck + 59 单测(新增 3)+ build 全绿。
+
 ### 0.76 — v0.1.2:Template 托盘图标、hover 面板修复、名牌带当前模型、review 修复(2026-06-05)
 - **菜单栏图标换 Codex 设计的小怪兽头**(assets/tray.svg):Template 规范(纯黑+alpha,深浅色自适应),墨水高规格化 16pt 与系统图标对齐;`?asset` 双分辨率(hash 文件名破坏 @2x 邻居约定 → `addRepresentation` 手挂 1x/2x)+ `setTemplateImage`。
 - **hover 面板截断修复**(验收发现):英文化后 Cache/Quota 行(≈17 字符值)超宽 —— 窗口最小宽 176→212、面板 max-width 190→200、面板区高 132→140。

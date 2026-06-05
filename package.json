@@ -9,7 +9,6 @@
   },
   "scripts": {
     "dev": "pnpm --filter @tokenmon/desktop dev",
-    "dev:real": "pnpm --filter @tokenmon/desktop dev:real",
     "build": "pnpm --filter @tokenmon/desktop build",
     "rebuild": "pnpm --filter @tokenmon/desktop rebuild",
     "typecheck": "pnpm -r --if-present typecheck",

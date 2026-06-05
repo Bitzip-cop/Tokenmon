@@ -6,7 +6,6 @@
   "main": "./out/main/app.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "dev:real": "TOKENMON_USE_MOCK=0 electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "rebuild": "electron-rebuild -f",

@@ -104,6 +104,48 @@ export function findNewestSession(cwd: string | null, root: string = PROJECTS): 
   return best;
 }
 
+/** 近期写过(mtime 在窗口内)= 活跃会话。多 CLI 窗口并行时会有多个。 */
+const ACTIVE_WINDOW_MS = 20_000;
+/** 同时 tail 的活跃会话上限(防极端目录)。 */
+const MAX_TRACKED = 6;
+
+/**
+ * 列出**所有活跃**会话 jsonl(mtime 距真实时钟 ≤ ACTIVE_WINDOW_MS,按新旧排序,封顶 MAX_TRACKED)。
+ * 注意窗口判定用 **真实时钟**(mtime 是 fs 事实);状态衰减才用注入时钟。
+ */
+export function findActiveSessions(cwd: string | null, root: string = PROJECTS): string[] {
+  const dirs: string[] = [];
+  if (cwd) {
+    dirs.push(join(root, slug(cwd)));
+  } else {
+    try {
+      for (const d of readdirSync(root)) dirs.push(join(root, d));
+    } catch {
+      return [];
+    }
+  }
+  const cutoff = Date.now() - ACTIVE_WINDOW_MS;
+  const found: { f: string; mt: number }[] = [];
+  for (const dir of dirs) {
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (!name.endsWith('.jsonl')) continue;
+      const f = join(dir, name);
+      const mt = safeStatMs(f);
+      if (mt >= cutoff) found.push({ f, mt });
+    }
+  }
+  return found
+    .sort((a, b) => b.mt - a.mt)
+    .slice(0, MAX_TRACKED)
+    .map((x) => x.f);
+}
+
 /** 一行会话记录 → 粗活动类型(没有可用信号则 null)。 */
 export function lineToKind(line: string): PetActivityKind | null {
   const s = line.trim();
@@ -147,9 +189,8 @@ export function feedChunk(pending: string, chunk: string): { kinds: PetActivityK
 
 export class PetSessionWatcher {
   private tracker = new PetActivityTracker();
-  private file: string | null = null;
-  private offset = 0;
-  private pending = '';
+  /** 活跃会话 → tail 游标(多 CLI 窗口并行时同时盯多个,事件汇入同一个状态机)。 */
+  private tails = new Map<string, { offset: number; pending: string }>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastEmitted: PetState | null = null;
 
@@ -187,29 +228,30 @@ export class PetSessionWatcher {
   }
 
   private poll(): void {
-    const newest = findNewestSession(this.cwd, this.root);
-    if (newest && newest !== this.file) {
-      const sz = safeSize(newest);
-      if (sz >= 0) {
-        // 切到新会话:附在末尾,只对“之后”的新活动反应(不回放整段历史)。
-        this.file = newest;
-        this.offset = sz;
-        this.pending = '';
-      }
+    const active = findActiveSessions(this.cwd, this.root);
+    // 新出现的活跃会话:附在末尾,只对"之后"的新活动反应(不回放历史)。
+    for (const f of active) {
+      if (this.tails.has(f)) continue;
+      const sz = safeSize(f);
+      if (sz >= 0) this.tails.set(f, { offset: sz, pending: '' });
     }
-    if (this.file) {
-      const size = safeSize(this.file);
+    // 不再活跃的从 map 移除(若复活会重新附末尾;状态是瞬时信号,错过的中段无所谓)。
+    const activeSet = new Set(active);
+    for (const f of [...this.tails.keys()]) if (!activeSet.has(f)) this.tails.delete(f);
+    // 各活跃会话读增量,事件全部喂进同一个状态机(任一窗口在干活 → working)。
+    for (const [f, t] of this.tails) {
+      const size = safeSize(f);
       if (size < 0) {
-        this.file = null; // 文件没了 → 下轮重新定位
-      } else if (size > this.offset) {
-        const chunk = readRange(this.file, this.offset, size);
-        this.offset = size;
-        const { kinds, pending } = feedChunk(this.pending, chunk);
-        this.pending = pending;
+        this.tails.delete(f); // 文件没了
+      } else if (size > t.offset) {
+        const chunk = readRange(f, t.offset, size);
+        t.offset = size;
+        const { kinds, pending } = feedChunk(t.pending, chunk);
+        t.pending = pending;
         for (const k of kinds) this.tracker.feed(k, this.now());
-      } else if (size < this.offset) {
-        this.offset = size; // 被截断/轮换
-        this.pending = '';
+      } else if (size < t.offset) {
+        t.offset = size; // 被截断/轮换
+        t.pending = '';
       }
     }
     const s = this.tracker.current(this.now());

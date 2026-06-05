@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PetActivityTracker, PET_IDLE_MS } from '../../src/shared/pet-activity';
+import { PetActivityTracker, PET_IDLE_MS, PET_WAITING_MS } from '../../src/shared/pet-activity';
 
 describe('PetActivityTracker(活动→角色状态)', () => {
   it('初始为 idle', () => {
@@ -18,18 +18,20 @@ describe('PetActivityTracker(活动→角色状态)', () => {
     expect(t.current(1300)).toBe('working');
   });
 
-  it('静默超过 PET_IDLE_MS → 回到 idle;之前保持活跃态', () => {
+  it('衰减链:说完话 → waiting(等用户回复) → 超窗 idle', () => {
     const t = new PetActivityTracker();
     t.feed('text', 1000);
     expect(t.current(1000 + PET_IDLE_MS)).toBe('talking'); // 恰好不超,仍活跃
-    expect(t.current(1000 + PET_IDLE_MS + 1)).toBe('idle'); // 超过 → idle
+    expect(t.current(1000 + PET_IDLE_MS + 1)).toBe('waiting'); // 说完话 → 等回复
+    expect(t.current(1000 + PET_WAITING_MS)).toBe('waiting'); // 窗口内持续等
+    expect(t.current(1000 + PET_WAITING_MS + 1)).toBe('idle'); // 等不到 → idle
   });
 
-  it('新活动会刷新计时,从 idle 复活', () => {
+  it('最后事件非 text(tool/result)→ 衰减直接 idle,不进 waiting', () => {
     const t = new PetActivityTracker();
     t.feed('tool', 1000);
     expect(t.current(1000 + PET_IDLE_MS + 1)).toBe('idle');
     t.feed('text', 9000);
-    expect(t.current(9000)).toBe('talking');
+    expect(t.current(9000)).toBe('talking'); // 新活动复活
   });
 });

@@ -4,6 +4,12 @@
 
 ## [unreleased]
 
+### 0.78 — 行为权重 + 真·等待回复 + 多窗口感知(2026-06-05)
+- **行为权重(resolveRow 重排)**:sad(负面标签,一旦打上最高,有新产出秒清)> **working**(干活最优先)> 输出中(eating > talking)> waiting(等回复)> 其余心情平权。此前"吃"压过一切 → 持续输出时永远在吃,看不到干活。
+- **waiting 做真了**:原来是 mock 时代的死状态(活动解析器从不产生)。现在定义为「说完话(最后事件是 assistant text)后 2 分钟内」= 等用户回复(PET_WAITING_MS,衰减链 talking→waiting→idle)。
+- **多 CLI 窗口感知**:watcher 从「只盯全局最新会话」升级为「盯**所有活跃**会话」(mtime 20s 窗口内,封顶 6 个;`findActiveSessions`),事件汇入同一状态机 —— 任一窗口在干活,宠物就示忙。活跃窗口判定用真实时钟(mtime 是 fs 事实),状态衰减用注入时钟(测试确定性)。
+- 验证:typecheck + 61 单测(新增/改写:衰减链、权重序、多窗口、findActiveSessions)+ build 全绿。
+
 ### 0.77 — 动作多样性:重排 clawd 默认映射 + 自发闲置动画 + happy 窗口缩短(2026-06-05)
 - 用户反馈"只会玩滑板、耳机动作没见过"。逐帧核对 clawd 行语义:**滑板有三行(1/2/7)**,旧映射把 talking(1)/working(2)/happy(7) 全配进滑板系;耳机(0)配给 mood=idle 但 happy 窗口 30 分钟 → 工作日几乎永远轮不到。机制本身(watcher/优先级/渲染)验证无 bug。
 - **重排默认映射**:working→3(安全帽扳手)、waiting→8(侦探放大镜);talking=1、happy=7(滑板保留一份)。

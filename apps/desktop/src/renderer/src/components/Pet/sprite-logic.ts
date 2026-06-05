@@ -14,14 +14,22 @@ export interface SpriteFrames {
 }
 
 /**
- * 行优先级:正在吃 > 活动(忙) > 心情(闲) > idle。
+ * 行优先级(权重版):
+ *   sad(两天没产出,负面标签一旦打上权重最高;一有新产出秒清)
+ *   > working(任一会话在干活——多 CLI 窗口交叉时优先示忙)
+ *   > 输出中:eating(token 进账) > talking(吐正文)
+ *   > waiting(说完话等用户回复)
+ *   > 其余心情平权(happy/idle 默认同 idle 行,花活交给 flourish)。
  * **绝不返回 undefined**:任何查不到的 mood/state(脏数据、或新旧 moodRows 键对不上)
  * 一律回退到 idle 行,否则 canvas 会用 undefined*frameH 画出"完全空帧"(宠物消失)。
  */
 export function resolveRow(rows: SpriteRows, state: PetState, mood?: PetMood): number {
   let row: number | undefined;
-  if (mood === 'eating') row = rows.moodRows.eating;
-  else if (state !== 'idle') row = rows.stateRows[state];
+  if (mood === 'sad') row = rows.moodRows.sad;
+  else if (state === 'working') row = rows.stateRows.working;
+  else if (mood === 'eating') row = rows.moodRows.eating;
+  else if (state === 'talking') row = rows.stateRows.talking;
+  else if (state === 'waiting') row = rows.stateRows.waiting;
   else if (mood) row = rows.moodRows[mood];
   else row = rows.stateRows.idle;
   if (Number.isInteger(row)) return row as number;

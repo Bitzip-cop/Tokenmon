@@ -7,9 +7,10 @@ import {
   lineToKind,
   feedChunk,
   findNewestSession,
+  findActiveSessions,
   PetSessionWatcher
 } from '../../src/main/pet/session-watch';
-import { PET_IDLE_MS } from '../../src/shared/pet-activity';
+import { PET_IDLE_MS, PET_WAITING_MS } from '../../src/shared/pet-activity';
 import type { PetState } from '../../src/shared/types/pet';
 
 const TOOL = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash' }] } });
@@ -128,8 +129,11 @@ describe('PetSessionWatcher(tail → 状态,含半行/衰减/轮换)', () => {
     w.pollOnce();
     expect(seen.at(-1)).toBe('talking');
 
-    // 静默超时 → idle
+    // 静默超时:说完话先 waiting(等用户回复),再超窗 idle
     now += PET_IDLE_MS + 1;
+    w.pollOnce();
+    expect(seen.at(-1)).toBe('waiting');
+    now += PET_WAITING_MS;
     w.pollOnce();
     expect(seen.at(-1)).toBe('idle');
 
@@ -139,5 +143,35 @@ describe('PetSessionWatcher(tail → 状态,含半行/衰减/轮换)', () => {
     appendFileSync(file, `${PROMPT}\n`);
     w.pollOnce();
     expect(seen.at(-1)).toBe('working');
+  });
+
+  it('多窗口并行:任一活跃会话有活动 → working(事件汇入同一状态机)', () => {
+    const dir2 = join(root, slug('/proj/y'));
+    mkdirSync(dir2, { recursive: true });
+    const file2 = join(dir2, 's2.jsonl');
+    writeFileSync(file2, '');
+    // 全局 watcher(cwd=null):两个项目的会话都盯
+    const seen2: PetState[] = [];
+    const w2 = new PetSessionWatcher(null, (s) => seen2.push(s), () => now, root);
+    w2.pollOnce(); // 两文件都附末尾
+    appendFileSync(file2, `${TOOL}\n`); // 只有第二个窗口在干活
+    w2.pollOnce();
+    expect(seen2.at(-1)).toBe('working');
+    // 第一个窗口同时输出文本 → 仍以最近事件为准(状态机统一)
+    appendFileSync(file, `${TEXT}\n`);
+    now += 100;
+    w2.pollOnce();
+    expect(seen2.at(-1)).toBe('talking');
+  });
+
+  it('findActiveSessions:近期写过的都算活跃(多项目),给 cwd 则只看该项目', () => {
+    const dir2 = join(root, slug('/proj/y'));
+    mkdirSync(dir2, { recursive: true });
+    const file2 = join(dir2, 's2.jsonl');
+    writeFileSync(file2, 'x\n'); // 刚写 → mtime 在窗口内
+    const all = findActiveSessions(null, root);
+    expect(all).toContain(file);
+    expect(all).toContain(file2);
+    expect(findActiveSessions('/proj/y', root)).toEqual([file2]);
   });
 });

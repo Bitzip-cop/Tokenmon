@@ -6,13 +6,15 @@ const rows = {
   moodRows: { eating: 4, happy: 7, idle: 0, sad: 5 }
 } as const;
 
-describe('resolveRow(行优先级)', () => {
-  it('正在吃 > 活动(忙) > 心情(闲) > idle', () => {
-    expect(resolveRow(rows, 'idle', 'eating')).toBe(4); // 吃优先
-    expect(resolveRow(rows, 'working', 'eating')).toBe(4); // 吃仍优先于活动
-    expect(resolveRow(rows, 'working', 'sad')).toBe(2); // 忙时看活动,不看心情
-    expect(resolveRow(rows, 'idle', 'happy')).toBe(7); // 闲时看心情:开心
-    expect(resolveRow(rows, 'idle', 'sad')).toBe(5); // 闲时看心情:难过
+describe('resolveRow(行优先级:sad > working > 吃 > 说 > waiting > 其余平权)', () => {
+  it('权重序', () => {
+    expect(resolveRow(rows, 'working', 'sad')).toBe(5); // 负面标签最高(一有产出秒清)
+    expect(resolveRow(rows, 'working', 'eating')).toBe(2); // 干活 > 吃(多窗口交叉时优先示忙)
+    expect(resolveRow(rows, 'talking', 'eating')).toBe(4); // 输出中:吃 > 说
+    expect(resolveRow(rows, 'idle', 'eating')).toBe(4); // 吃 > 平权心情
+    expect(resolveRow(rows, 'waiting', 'happy')).toBe(3); // 等回复 > 平权心情
+    expect(resolveRow(rows, 'idle', 'happy')).toBe(7); // 平权心情按映射(默认 happy=idle 行)
+    expect(resolveRow(rows, 'idle', 'sad')).toBe(5);
     expect(resolveRow(rows, 'idle', undefined)).toBe(0); // 闲且无心情 → idle
   });
   it('未知 mood/state 一律回退 idle 行(绝不返回 undefined → canvas 不画空帧)', () => {

@@ -1,0 +1,26 @@
+name: Release
+
+# 打 tag(v*)即出 dmg 挂到 GitHub Release。
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-latest # Apple Silicon runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: apps/desktop/release/*.dmg
+          generate_release_notes: true

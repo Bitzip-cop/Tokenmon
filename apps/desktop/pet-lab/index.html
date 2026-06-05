@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>Pet Lab · 调 codex-pets 格式</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font: 13px/1.5 ui-monospace, Menlo, monospace; background: #14151a; color: #e6e6e6; }
+  header { padding: 10px 16px; border-bottom: 1px solid #2a2c33; }
+  header b { color: #ffb454; }
+  main { display: flex; gap: 18px; padding: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .panel { background: #1b1d24; border: 1px solid #2a2c33; border-radius: 10px; padding: 14px; }
+  .ctl { display: grid; grid-template-columns: 110px 1fr 56px; gap: 8px 10px; align-items: center; min-width: 320px; }
+  .ctl label { color: #9aa0aa; }
+  .ctl input[type=number], .ctl input[type=range] { width: 100%; }
+  .val { text-align: right; color: #7fd4a0; }
+  .states { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .states button { background: #23262f; color: #e6e6e6; border: 1px solid #343845; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+  .states button.active { background: #ffb454; color: #14151a; border-color: #ffb454; font-weight: 700; }
+  .stage { background: repeating-conic-gradient(#202229 0% 25%, #181a20 0% 50%) 50% / 24px 24px; border-radius: 10px; }
+  canvas { display: block; image-rendering: pixelated; }
+  .hint { color: #9aa0aa; max-width: 360px; }
+  code { color: #ffb454; }
+  .row-map { display: grid; grid-template-columns: 90px 60px; gap: 6px 10px; align-items: center; margin-top: 8px; }
+  .row-map input { width: 56px; }
+  #dump { white-space: pre-wrap; background: #0f1014; border: 1px solid #2a2c33; border-radius: 8px; padding: 10px; color: #7fd4a0; margin-top: 10px; }
+</style>
+</head>
+<body>
+<header><b>Pet Lab</b> — 把 clawd 真表的网格/状态行调对齐;定下来把下面 <code>config</code> 给我,我固化成组件。</header>
+<main>
+  <div class="panel">
+    <div class="ctl">
+      <label>cols(列)</label><input id="cols" type="number" min="1" max="16" value="8"><span class="val" id="cols_v"></span>
+      <label>rows(行)</label><input id="rows" type="number" min="1" max="16" value="8"><span class="val" id="rows_v"></span>
+      <label>每行帧数</label><input id="fpr" type="number" min="1" max="16" value="8"><span class="val" id="fpr_v"></span>
+      <label>帧率 fps</label><input id="fps" type="range" min="1" max="16" value="6"><span class="val" id="fps_v"></span>
+      <label>显示放大</label><input id="scale" type="range" min="0.5" max="3" step="0.1" value="1.4"><span class="val" id="scale_v"></span>
+    </div>
+    <div id="info" class="hint" style="margin-top:10px"></div>
+
+    <div class="states" id="states"></div>
+
+    <div class="row-map">
+      <div style="grid-column:1/3;color:#9aa0aa">状态 → 行号(对齐后填这里):</div>
+      <label>idle 空闲</label><input id="map_idle" type="number" min="0" value="0">
+      <label>working 干活</label><input id="map_working" type="number" min="0" value="2">
+      <label>talking 说话</label><input id="map_talking" type="number" min="0" value="1">
+      <label>waiting 等你</label><input id="map_waiting" type="number" min="0" value="3">
+    </div>
+    <div id="dump"></div>
+  </div>
+
+  <div class="panel">
+    <div class="hint">▶ 当前状态动画(看这只动得对不对):</div>
+    <div class="stage" style="margin-top:8px"><canvas id="play"></canvas></div>
+  </div>
+
+  <div class="panel">
+    <div class="hint">🔲 整表 + 网格叠加(数清楚几行几列、每行是什么动作):</div>
+    <div class="stage" style="margin-top:8px"><canvas id="sheet"></canvas></div>
+  </div>
+</main>
+
+<script>
+const img = new Image();
+img.src = 'clawd/spritesheet.webp';
+const $ = (id) => document.getElementById(id);
+const STATES = ['idle','working','talking','waiting'];
+let state = 'idle', frame = 0, last = 0;
+
+function cfg() {
+  return {
+    cols: +$('cols').value, rows: +$('rows').value,
+    framesPerRow: +$('fpr').value, fps: +$('fps').value, scale: +$('scale').value,
+    stateRows: { idle:+$('map_idle').value, working:+$('map_working').value, talking:+$('map_talking').value, waiting:+$('map_waiting').value }
+  };
+}
+function syncVals() {
+  for (const k of ['cols','rows','fpr','fps','scale']) $(k+'_v').textContent = $(k).value;
+}
+
+function drawSheet() {
+  const c = cfg(); const cv = $('sheet'); const ctx = cv.getContext('2d');
+  const maxW = 360; const s = Math.min(1, maxW / img.width);
+  cv.width = img.width * s; cv.height = img.height * s;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, 0, 0, cv.width, cv.height);
+  ctx.strokeStyle = 'rgba(255,180,84,.7)'; ctx.fillStyle = '#ffb454'; ctx.font = '11px monospace';
+  const fw = cv.width / c.cols, fh = cv.height / c.rows;
+  for (let i=0;i<=c.cols;i++){ ctx.beginPath(); ctx.moveTo(i*fw,0); ctx.lineTo(i*fw,cv.height); ctx.stroke(); }
+  for (let j=0;j<=c.rows;j++){ ctx.beginPath(); ctx.moveTo(0,j*fh); ctx.lineTo(cv.width,j*fh); ctx.stroke(); ctx.fillText('r'+j, 2, j*fh+12); }
+}
+
+function drawPlay(t) {
+  const c = cfg();
+  const fw = img.width / c.cols, fh = img.height / c.rows;
+  const row = c.stateRows[state] ?? 0;
+  if (t - last > 1000 / c.fps) { frame = (frame + 1) % c.framesPerRow; last = t; }
+  const cv = $('play'); const ctx = cv.getContext('2d');
+  cv.width = fw * c.scale; cv.height = fh * c.scale;
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.drawImage(img, frame*fw, row*fh, fw, fh, 0, 0, cv.width, cv.height);
+  requestAnimationFrame(drawPlay);
+}
+
+function refresh() {
+  syncVals();
+  const c = cfg();
+  $('info').innerHTML = `表 <code>${img.width}×${img.height}</code> · 帧 <code>${Math.round(img.width/c.cols)}×${Math.round(img.height/c.rows)}</code>（= 表 ÷ 列/行）`;
+  $('dump').textContent = 'config = ' + JSON.stringify({ cols:c.cols, rows:c.rows, framesPerRow:c.framesPerRow, fps:c.fps, frameW: Math.round(img.width/c.cols), frameH: Math.round(img.height/c.rows), stateRows:c.stateRows }, null, 2);
+  drawSheet();
+}
+
+function buildStateButtons() {
+  const box = $('states');
+  STATES.forEach((s) => {
+    const b = document.createElement('button');
+    b.textContent = s; b.dataset.s = s;
+    b.onclick = () => { state = s; frame = 0; [...box.children].forEach(x=>x.classList.toggle('active', x.dataset.s===s)); };
+    if (s === state) b.classList.add('active');
+    box.appendChild(b);
+  });
+}
+
+img.onload = () => {
+  buildStateButtons();
+  ['cols','rows','fpr','fps','scale','map_idle','map_working','map_talking','map_waiting'].forEach(id => $(id).addEventListener('input', refresh));
+  refresh();
+  requestAnimationFrame(drawPlay);
+};
+img.onerror = () => { document.body.innerHTML = '<p style="color:#ff6b6b;padding:20px">加载 clawd/spritesheet.webp 失败 —— 确认用 file:// 打开本目录下的 index.html。</p>'; };
+</script>
+</body>
+</html>

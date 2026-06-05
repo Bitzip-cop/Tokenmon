@@ -1,0 +1,20 @@
+# Tokenmon 打包配置(macOS .dmg)。无 Apple Developer 证书 → electron-builder 自动 **ad-hoc** 深签
+# (Apple Silicon 必须至少 ad-hoc 才能启动);用户首启仍需右键打开绕 Gatekeeper,见 README。
+appId: com.bitzip.tokenmon
+productName: Tokenmon
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+asarUnpack:
+  - '**/*.node' # better-sqlite3 原生模块不进 asar
+npmRebuild: false # postinstall 已用 @electron/rebuild 按 Electron ABI 编好
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.png
+  target:
+    - target: dmg
+      arch: [arm64]
+dmg:
+  title: Tokenmon

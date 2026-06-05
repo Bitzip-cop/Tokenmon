@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- CSP 不在此静态声明(会拦截 Vite dev 的内联 refresh 脚本,导致黑屏)。
+         生产环境由主进程经 onHeadersReceived 注入(见 main/app.ts)。 -->
+    <title>Tokenmon</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

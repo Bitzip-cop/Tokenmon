@@ -1,0 +1,18 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# @electron/rebuild 通过 git 引用 @electron/node-gyp,pnpm 11 默认拦截 git 子依赖。
+blockExoticSubdeps: false
+
+# 批准依赖运行构建脚本(下载 electron / esbuild 二进制)。
+# 注意:故意不批准 better-sqlite3 的构建脚本——否则 pnpm 会用系统 Node 编译它,
+# 覆盖掉 postinstall 里 electron-rebuild 针对 Electron ABI 的产物,导致运行时
+# NODE_MODULE_VERSION 不匹配。better-sqlite3 只由 electron-rebuild 编译。
+allowBuilds:
+  better-sqlite3: false
+  electron: true
+  electron-winstaller: set this to true or false
+  esbuild: true
+  # macOS 原生文件事件:让 chokidar 用 fsevents 而非 per-dir fs.watch,避免大目录 EMFILE。
+  fsevents: true

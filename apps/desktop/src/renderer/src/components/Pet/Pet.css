@@ -1,0 +1,315 @@
+.petpreview {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: #14151a;
+  color: #e6e6e6;
+  font: 13px/1.5 ui-monospace, Menlo, monospace;
+}
+.petpreview__stage {
+  /* 棋盘格底,凸显透明像素边界 */
+  background: repeating-conic-gradient(#202229 0% 25%, #181a20 0% 50%) 50% / 24px 24px;
+  border: 1px solid #2a2c33;
+  border-radius: 12px;
+  padding: 16px;
+}
+.petpreview__states {
+  display: flex;
+  gap: 8px;
+}
+.petpreview__states button {
+  background: #23262f;
+  color: #e6e6e6;
+  border: 1px solid #343845;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.petpreview__states button.is-active {
+  background: #ffb454;
+  color: #14151a;
+  border-color: #ffb454;
+  font-weight: 700;
+}
+.petpreview__hint {
+  color: #9aa0aa;
+}
+
+.petpreview__stage {
+  position: relative;
+}
+.petpreview__mood {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 22px;
+}
+
+.pethud {
+  width: 320px;
+  background: #1b1d24;
+  border: 1px solid #2a2c33;
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pethud__feed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #9aa0aa;
+}
+.pethud__bar {
+  flex: 1;
+  height: 8px;
+  background: #2a2c33;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.pethud__barfill {
+  height: 100%;
+  background: linear-gradient(90deg, #ffb454, #7fd4a0);
+  transition: width 0.4s ease;
+}
+.pethud__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pethud__row {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+.pethud__k {
+  color: #9aa0aa;
+}
+.pethud__cost {
+  color: #7fd4a0;
+}
+.pethud__note {
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* ---- mood glyphs: in-universe pixel badges, replacing system emoji ---- */
+.moodiconWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: -2px;
+}
+.moodicon {
+  --mood-bg: #2b3139;
+  --mood-fg: #f3f0d7;
+  --mood-accent: #ffb454;
+  position: relative;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border: 1px solid rgba(9, 11, 15, 0.95);
+  border-radius: 3px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0 18%, transparent 18%),
+    var(--mood-bg);
+  box-shadow:
+    inset -2px -2px 0 rgba(0, 0, 0, 0.24),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.22),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+  image-rendering: pixelated;
+}
+.moodicon::before,
+.moodicon::after,
+.moodicon__face {
+  position: absolute;
+  display: block;
+  content: '';
+  image-rendering: pixelated;
+}
+.moodicon--eating {
+  --mood-bg: #6f4521;
+  --mood-accent: #ffd36a;
+}
+.moodicon--eating::before {
+  width: 6px;
+  height: 5px;
+  left: 3px;
+  top: 5px;
+  background: var(--mood-accent);
+  box-shadow:
+    1px -1px 0 #fff3a6,
+    5px 2px 0 #2d1b10;
+}
+.moodicon--eating::after {
+  width: 2px;
+  height: 2px;
+  right: 2px;
+  top: 2px;
+  background: #7ee7c2;
+  box-shadow:
+    -2px 2px 0 #7ee7c2,
+    1px 4px 0 rgba(255, 255, 255, 0.85);
+}
+.moodicon--happy {
+  --mood-bg: #255a4b;
+  --mood-accent: #8ff0bd;
+}
+.moodicon--happy::before {
+  width: 2px;
+  height: 2px;
+  left: 4px;
+  top: 4px;
+  background: var(--mood-fg);
+  box-shadow: 5px 0 0 var(--mood-fg);
+}
+.moodicon--happy::after {
+  width: 6px;
+  height: 2px;
+  left: 4px;
+  top: 9px;
+  background: var(--mood-accent);
+  box-shadow:
+    1px 1px 0 var(--mood-accent),
+    4px 1px 0 var(--mood-accent);
+}
+.moodicon--idle {
+  --mood-bg: #343a46;
+  --mood-accent: #b7c2d1;
+}
+.moodicon--idle::before {
+  width: 4px;
+  height: 1px;
+  left: 3px;
+  top: 6px;
+  background: var(--mood-fg);
+  box-shadow: 5px 0 0 var(--mood-fg);
+}
+.moodicon--idle::after {
+  width: 2px;
+  height: 2px;
+  right: 2px;
+  top: 2px;
+  background: var(--mood-accent);
+  box-shadow:
+    -2px 2px 0 rgba(183, 194, 209, 0.72),
+    -4px 4px 0 rgba(183, 194, 209, 0.48);
+}
+.moodicon--sad {
+  --mood-bg: #314055;
+  --mood-accent: #8fc7ff;
+}
+.moodicon--sad::before {
+  width: 2px;
+  height: 2px;
+  left: 4px;
+  top: 4px;
+  background: var(--mood-fg);
+  box-shadow: 5px 1px 0 var(--mood-fg);
+}
+.moodicon--sad::after {
+  width: 5px;
+  height: 2px;
+  left: 4px;
+  top: 10px;
+  background: #d3d8df;
+  box-shadow: 7px -3px 0 var(--mood-accent);
+}
+
+/* ---- 桌面悬浮宠物 ---- */
+.petoverlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start; /* pet 顶部锚定:hover 时信息往下展开,pet 不动 */
+  padding-top: 6px;
+  background: transparent;
+  -webkit-app-region: drag; /* 整窗可拖 */
+  user-select: none;
+  font: 11px ui-monospace, Menlo, monospace;
+  color: #e6e6e6;
+  overflow: hidden;
+}
+.petoverlay__pet {
+  -webkit-app-region: drag;
+}
+/* agent 名(Claude / Codex):形象下方、消耗数据上方,单独一行的小标签。 */
+.petoverlay__name {
+  -webkit-app-region: no-drag;
+  font: 700 10px ui-monospace, Menlo, monospace;
+  color: #fff;
+  background: rgba(20, 21, 26, 0.72);
+  border-radius: 8px;
+  padding: 1px 8px;
+  margin-top: 2px;
+  letter-spacing: 0.04em;
+  backdrop-filter: blur(4px);
+}
+.petoverlay__hud {
+  -webkit-app-region: no-drag; /* HUD 不拖,留作将来可点 */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(20, 21, 26, 0.72);
+  border-radius: 10px;
+  padding: 3px 8px;
+  margin-top: 2px;
+  backdrop-filter: blur(4px);
+  white-space: nowrap;
+}
+/* Codex 真实额度(5h used_percent),HUD 里淡蓝高亮一下。 */
+.petoverlay__quota {
+  color: #9fd2ff;
+}
+.petoverlay__bar {
+  width: 46px;
+  height: 6px;
+  background: #2a2c33;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.petoverlay__bar > div {
+  height: 100%;
+  background: linear-gradient(90deg, #ffb454, #7fd4a0);
+  transition: width 0.4s ease;
+}
+/* hover 展开的「今日用量」面板(在 HUD 下方)。 */
+.petoverlay__more {
+  display: none; /* 默认隐藏;hover 整窗时才显(纯 CSS,窗口不 resize → 不会丢透明露白底) */
+  -webkit-app-region: no-drag;
+  margin-top: 4px;
+  width: calc(100% - 16px);
+  max-width: 190px;
+  background: rgba(20, 21, 26, 0.82);
+  border-radius: 10px;
+  padding: 6px 9px;
+  backdrop-filter: blur(4px);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+.petoverlay__moreHead {
+  font-weight: 600;
+  opacity: 0.65;
+  margin-bottom: 2px;
+}
+.petoverlay__moreRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  white-space: nowrap;
+}
+.petoverlay__moreRow > span:first-child {
+  opacity: 0.7;
+}
+.petoverlay:hover .petoverlay__more {
+  display: block;
+}

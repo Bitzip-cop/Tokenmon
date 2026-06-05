@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+build/
+out/
+.electron-vite/
+*.tsbuildinfo
+
+# local data / logs / user workspaces (see skeleton §15.2)
+data/*.sqlite
+data/*.sqlite-*
+data/*.db
+logs/*
+!logs/.gitkeep
+workspaces/*
+!workspaces/.gitkeep
+data/*
+!data/.gitkeep
+
+# misc
+.DS_Store
+*.local
+coverage/
+.vite/
+
+# electron-builder(打包产物忽略;buildResources 里的图标要进库)
+apps/desktop/release/
+!apps/desktop/build/
+!apps/desktop/build/**

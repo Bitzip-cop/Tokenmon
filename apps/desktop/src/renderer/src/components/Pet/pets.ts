@@ -40,7 +40,9 @@ export const GRID: Omit<PetConfig, 'name' | 'spritesheet'> = {
   // clawd 实际行语义(逐帧看图定):0=耳机闲 1/2/7=滑板系 3=安全帽扳手 4=吃 5=难过趴 6=趴甩尾 8=侦探放大镜。
   // 旧映射把 talking(1)/working(2)/happy(7) 全配进滑板系 → 观感"只会玩滑板";现在尽量一态一景。
   stateRows: { idle: 0, talking: 1, working: 3, waiting: 8 },
-  moodRows: { eating: 4, happy: 7, idle: 0, sad: 5 },
+  // happy 不单独配行(=idle 耳机):持续输出时 happy 几乎常驻,单独配行会"一直卡在庆祝";
+  // 心情仍在 HUD 徽章上区分,滑板等花活交给 flourish 随机出现。
+  moodRows: { eating: 4, happy: 0, idle: 0, sad: 5 },
   flourishRows: [1, 2, 3, 6, 7, 8] // 闲着时偶尔随机耍一轮(不含吃/难过)
 };
 

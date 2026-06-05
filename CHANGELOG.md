@@ -4,6 +4,11 @@
 
 ## [unreleased]
 
+### 0.79 — hover 面板标注数据范围「仅本地会话」(2026-06-05)
+- 用户反馈"用了 Claude 桌面 App 但价格没被算出来" → 排查结论:**计价链路无 bug**(当日账本 $21.53 与官方单价手算一致);是数据源限制 —— App/网页**聊天**用量在云端、本地零落地,原理上不可计。桌面 App 里的 **Code** 会话(`entrypoint:"claude-desktop"`)照常写 `~/.claude/projects`、照常计入。
+- 防误解:hover 面板底部加小字 `Local Claude Code sessions only` / `Local Codex CLI sessions only`(title 悬停给完整解释)。面板区 140px 容得下(最满 Codex 面板 ~110px + 小字 ~12px),窗口尺寸不动。
+- 验证:typecheck + 61 单测全绿。
+
 ### 0.78 — 行为权重 + 真·等待回复 + 多窗口感知(2026-06-05)
 - **行为权重(resolveRow 重排)**:sad(负面标签,一旦打上最高,有新产出秒清)> **working**(干活最优先)> 输出中(eating > talking)> waiting(等回复)> 其余心情平权。此前"吃"压过一切 → 持续输出时永远在吃,看不到干活。
 - **waiting 做真了**:原来是 mock 时代的死状态(活动解析器从不产生)。现在定义为「说完话(最后事件是 assistant text)后 2 分钟内」= 等用户回复(PET_WAITING_MS,衰减链 talking→waiting→idle)。

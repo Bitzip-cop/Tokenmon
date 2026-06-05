@@ -10,6 +10,18 @@ import type { PetUsageSnapshot, PetSourceId, CharacterMapping } from '@shared/pe
 import { useIpcEvent } from '../../hooks/use-ipc-event';
 import './Pet.css';
 
+/** hover 面板底部的数据范围小字:只统计本地会话 jsonl;App/网页聊天在云端、本地无落地,原理上看不到。 */
+const SOURCE_NOTE: Record<PetSourceId, { text: string; title: string }> = {
+  claude: {
+    text: 'Local Claude Code sessions only',
+    title: 'Counts session logs under ~/.claude/projects (CLI & desktop-app Code). Chat in the Claude app / claude.ai never lands locally, so it cannot be counted.'
+  },
+  codex: {
+    text: 'Local Codex CLI sessions only',
+    title: 'Counts session logs under ~/.codex/sessions. ChatGPT app / web usage never lands locally, so it cannot be counted.'
+  }
+};
+
 function fmtCost(n: number): string {
   return '$' + (n < 1 ? n.toFixed(3) : n.toFixed(2));
 }
@@ -147,6 +159,9 @@ export function PetOverlay({ scale = 0.55, source = 'claude' }: { scale?: number
               </span>
             </div>
           )}
+          <div className="petoverlay__moreNote" title={SOURCE_NOTE[source].title}>
+            {SOURCE_NOTE[source].text}
+          </div>
         </div>
       )}
     </div>

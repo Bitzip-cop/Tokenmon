@@ -316,6 +316,15 @@
 .petoverlay__moreRow > span:first-child {
   opacity: 0.7;
 }
+/* 数据范围小字(面板底):只统计本地会话,App/网页聊天看不到 —— 防"为什么聊天没被计费"的误解 */
+.petoverlay__moreNote {
+  margin-top: 3px;
+  font-size: 9px;
+  opacity: 0.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .petoverlay:hover .petoverlay__more {
   display: block;
 }

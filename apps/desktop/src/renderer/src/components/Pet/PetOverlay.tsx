@@ -126,8 +126,10 @@ export function PetOverlay({ scale = 0.55, source = 'claude' }: { scale?: number
           </div>
           <div className="petoverlay__moreRow">
             <span>⟳ Cache</span>
+            {/* Codex 数据源没有缓存写字段(OpenAI 不收缓存写费)→ 恒 0,只显 r,免得像坏数据 */}
             <span>
-              w {fmtTokens(usage.today.cacheWrite)} · r {fmtTokens(usage.today.cacheRead)}
+              {usage.today.cacheWrite > 0 ? `w ${fmtTokens(usage.today.cacheWrite)} · ` : ''}r{' '}
+              {fmtTokens(usage.today.cacheRead)}
             </span>
           </div>
           {usage.showCost && (

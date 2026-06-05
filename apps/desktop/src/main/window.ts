@@ -1,5 +1,5 @@
 // 桌宠悬浮窗创建(Pet 版:旧主窗口 createMainWindow 已随画布/工作台移出,见 docs/legacy-canvas-ui.md)。
-import { BrowserWindow, screen, Menu, clipboard, dialog } from 'electron';
+import { app, BrowserWindow, screen, Menu, clipboard, dialog } from 'electron';
 import { join } from 'node:path';
 import type { PetSourceId } from '@shared/pet-usage';
 import { listCharacters, parsePetId, importCharacter } from './pet/characters';
@@ -96,7 +96,10 @@ export function createPetOverlay(source: PetSourceId = 'claude', index = 0): Bro
         ]
       },
       // 动作设置:让被右键的桌宠把自己当前角色 id 报上来,再开设置窗口(渲染层知道自己的 source/角色)。
-      { label: 'Action Mapping…', click: () => win.webContents.send('pet:tune-request', {}) }
+      { label: 'Action Mapping…', click: () => win.webContents.send('pet:tune-request', {}) },
+      { type: 'separator' as const },
+      // 无 Dock/菜单栏(贴全屏的副作用),右键和托盘是仅有的退出口。
+      { label: 'Quit Tokenmon', click: () => app.quit() }
     ]);
     menu.popup({ window: win });
   });

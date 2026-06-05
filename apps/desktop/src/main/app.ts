@@ -1,6 +1,7 @@
 // Electron 主进程入口 / 组合根(Pet 版)。最小装配:DB(app_state)+ IPC + 桌宠悬浮窗。
 // 旧的画布/语音/多 Agent 工作台已移出(见 docs/legacy-canvas-ui.md);代码在 git 历史 + 本地 bundle。
-import { app, BrowserWindow, dialog, session } from 'electron';
+import { app, BrowserWindow, dialog, session, Tray, Menu, nativeImage } from 'electron';
+import trayIconPath from './assets/tray.png?asset';
 import { migrateLegacyData } from './config/paths';
 import { detectedSources } from './pet/sources';
 import { getDb, closeDb } from './db/sqlite';
@@ -62,10 +63,31 @@ function openDetectedPets(): void {
   log.info('pets opened', { sources: sources.map((s) => s.id) });
 }
 
+// 菜单栏(顶部状态栏)常驻图标:桌宠为了浮在全屏 app 之上会隐藏 Dock 图标(visibleOnFullScreen 的副作用),
+// 没有这个入口用户就无法退出/找回 app。持引用防 GC。
+let tray: Tray | null = null;
+function createTray(): void {
+  tray = new Tray(nativeImage.createFromPath(trayIconPath));
+  tray.setToolTip('Tokenmon');
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: 'Re-open pets',
+        click: () => {
+          if (BrowserWindow.getAllWindows().length === 0) openDetectedPets();
+        }
+      },
+      { type: 'separator' },
+      { label: 'Quit Tokenmon', role: 'quit' }
+    ])
+  );
+}
+
 void app.whenReady().then(() => {
   migrateLegacyData(); // 0.69 改名迁移:旧 talky-desktop 数据搬过来(在开库前)
   applyProdCsp();
   setupServices();
+  createTray();
   openDetectedPets();
 
   app.on('activate', () => {

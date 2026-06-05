@@ -4,6 +4,12 @@
 
 ## [unreleased]
 
+### 0.75 — v0.1.1:菜单栏托盘图标 + 右键 Quit(修"无法退出")(2026-06-05)
+- 验收发现:桌宠为了浮在全屏 app 之上(`visibleOnFullScreen`),Electron 会隐藏 Dock 图标 → 没有 Dock、没有应用菜单,右键菜单又没有退出项,**用户只能去活动监视器杀进程**。
+- 修复:① **菜单栏托盘图标**(clawd 像素小图标,`?asset` 经 electron-vite 打进 out):Re-open pets + Quit Tokenmon;② 桌宠**右键菜单底部加 Quit Tokenmon**。
+- 版本 0.1.0 → 0.1.1;打 tag 走 release workflow 出新 dmg。
+- 验证:typecheck + 55 单测 + build 全绿;0.1.1 打包版实测托盘/右键退出正常(用户验收)。
+
 ### 0.74 — 修 CI:pnpm allowBuilds 占位符导致 install 退出 1(2026-06-05)
 - `pnpm add electron-builder` 时 pnpm v11 在 pnpm-workspace.yaml 自动插了占位行 `electron-winstaller: set this to true or false`(无效值=未决策),CI 干净安装报 `ERR_PNPM_IGNORED_BUILDS` 退出 1(本地因管道吞了退出码没暴露)。改为显式 `false`(只打 mac dmg 用不到 Windows 安装器);干净 clone 复现 exit=0。
 

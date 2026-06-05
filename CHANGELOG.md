@@ -4,6 +4,9 @@
 
 ## [unreleased]
 
+### 0.74 — 修 CI:pnpm allowBuilds 占位符导致 install 退出 1(2026-06-05)
+- `pnpm add electron-builder` 时 pnpm v11 在 pnpm-workspace.yaml 自动插了占位行 `electron-winstaller: set this to true or false`(无效值=未决策),CI 干净安装报 `ERR_PNPM_IGNORED_BUILDS` 退出 1(本地因管道吞了退出码没暴露)。改为显式 `false`(只打 mac dmg 用不到 Windows 安装器);干净 clone 复现 exit=0。
+
 ### 0.73 — README(EN/ZH) + LICENSE(MIT) + CI(开源前置)(2026-06-05)
 - **README 重写**:英文为主(README.md)+ 中文版(README.zh.md)——零配置自动检测、本地优先隐私声明、dmg 安装(右键打开绕 Gatekeeper)、源码构建、env 配置表、按模型计价说明、codex-pets 素材致谢;banner 用 clawd+chispa 精灵拼图(docs/assets/banner.png)。旧 README 的「饱腹度/画布」过时内容移除。
 - **LICENSE**:MIT(Copyright 2026 Bitzip-cop)。

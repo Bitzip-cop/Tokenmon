@@ -12,7 +12,8 @@ blockExoticSubdeps: false
 allowBuilds:
   better-sqlite3: false
   electron: true
-  electron-winstaller: set this to true or false
+  # Windows Squirrel 安装器(electron-builder 传依赖):只打 mac dmg,不需要它的构建脚本。
+  electron-winstaller: false
   esbuild: true
   # macOS 原生文件事件:让 chokidar 用 fsevents 而非 per-dir fs.watch,避免大目录 EMFILE。
   fsevents: true

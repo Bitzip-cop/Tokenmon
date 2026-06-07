@@ -2,6 +2,7 @@
 // 增量摄取:扫该源所有会话 jsonl,每个文件只读 cursor 之后的新内容(只推进到完整行边界,半行留到下次;
 // cursor 按「字节」推进)。持久化在 app_state(两源各一本账,键见 PetSource.ledgerKey)。
 import { statSync, openSync, readSync, closeSync } from 'node:fs';
+import { sep } from 'node:path';
 import {
   dayKeyOf,
   applyUsage,
@@ -156,6 +157,16 @@ export class UsageLedger {
           for (const [day, t] of Object.entries(s.byDay)) s.byDayCost[day] = p ? costUSD(t, p) : 0;
         }
         if (!s.fileModels) s.fileModels = {};
+        if (!s.subagentsBaselined) {
+          // 旧账本迁移:首次引入 sub-agent 转录扫描 → 现存 subagents 文件按当前大小打基线
+          // (与首装「不回算历史」一致;此后增量正常计入)。
+          for (const f of this.source.listFiles(this.root)) {
+            if (f.includes(`${sep}subagents${sep}`) && s.cursors[f] === undefined) {
+              s.cursors[f] = Math.max(0, safeSize(f));
+            }
+          }
+          s.subagentsBaselined = true;
+        }
         return s;
       } catch {
         /* 损坏 → 重建基线 */

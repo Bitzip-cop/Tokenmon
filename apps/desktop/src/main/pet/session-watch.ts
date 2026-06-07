@@ -1,7 +1,7 @@
 // 盯住某项目最新的 Claude Code 会话 JSONL,把新写入的事件映射成角色状态(PetState)。
 // 轮询式(每 ~700ms 读增量),比 fs.watch 稳(避开编辑器原子写/重命名等坑)。
 // 防御:所有 fs 调用都安全包裹;半行 tail 用 pending 缓冲;cwd 定位失败不退全局。
-import { readdirSync, statSync, openSync, readSync, closeSync } from 'node:fs';
+import { readdirSync, statSync, openSync, readSync, closeSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { PetActivityTracker, type PetActivityKind } from '@shared/pet-activity';
@@ -111,6 +111,8 @@ const MAX_TRACKED = 6;
 
 /**
  * 列出**所有活跃**会话 jsonl(mtime 距真实时钟 ≤ ACTIVE_WINDOW_MS,按新旧排序,封顶 MAX_TRACKED)。
+ * 含 sub-agent 转录(<会话id>/subagents/agent-*.jsonl):主会话等 Task 返回时自己不写,
+ * 干活的是 sub-agent —— 不盯这层宠物会误判成 waiting。
  * 注意窗口判定用 **真实时钟**(mtime 是 fs 事实);状态衰减才用注入时钟。
  */
 export function findActiveSessions(cwd: string | null, root: string = PROJECTS): string[] {
@@ -126,18 +128,30 @@ export function findActiveSessions(cwd: string | null, root: string = PROJECTS):
   }
   const cutoff = Date.now() - ACTIVE_WINDOW_MS;
   const found: { f: string; mt: number }[] = [];
+  const consider = (f: string): void => {
+    const mt = safeStatMs(f);
+    if (mt >= cutoff) found.push({ f, mt });
+  };
   for (const dir of dirs) {
-    let names: string[];
+    let ents: Dirent[];
     try {
-      names = readdirSync(dir);
+      ents = readdirSync(dir, { withFileTypes: true });
     } catch {
       continue;
     }
-    for (const name of names) {
-      if (!name.endsWith('.jsonl')) continue;
-      const f = join(dir, name);
-      const mt = safeStatMs(f);
-      if (mt >= cutoff) found.push({ f, mt });
+    for (const e of ents) {
+      if (e.name.endsWith('.jsonl')) {
+        consider(join(dir, e.name));
+      } else if (e.isDirectory()) {
+        const sub = join(dir, e.name, 'subagents');
+        let names: string[];
+        try {
+          names = readdirSync(sub);
+        } catch {
+          continue; // 不是会话目录 / 没派过 agent
+        }
+        for (const n of names) if (n.endsWith('.jsonl')) consider(join(sub, n));
+      }
     }
   }
   return found

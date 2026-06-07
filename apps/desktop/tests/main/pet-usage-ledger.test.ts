@@ -105,6 +105,50 @@ describe('UsageLedger(增量摄取账本)', () => {
     expect(led.snapshot().allTime.output).toBe(50);
   });
 
+  // ---- sub-agent 转录(<会话id>/subagents/agent-*.jsonl)----
+
+  it('sub-agent 转录计入:subagents 下新增用量与主会话同账', () => {
+    writeFileSync(file, '');
+    const led = new UsageLedger(fakeStore(), now, root);
+    led.ingest();
+    // 主会话派出 sub-agent → 转录单独落盘在 <slug>/<会话id>/subagents/
+    const subDir = join(root, '-p-x', 's-id', 'subagents');
+    mkdirSync(subDir, { recursive: true });
+    writeFileSync(join(subDir, 'agent-a1.jsonl'), `${rec(70)}\n`);
+    appendFileSync(file, `${rec(30)}\n`);
+    expect(led.ingest()).toBe(100); // 主 30 + sub-agent 70
+    expect(led.snapshot().allTime.output).toBe(100);
+  });
+
+  it('旧账本迁移:现存 subagents 文件打基线不回算,此后增量照计', () => {
+    writeFileSync(file, '');
+    const subDir = join(root, '-p-x', 's-id', 'subagents');
+    mkdirSync(subDir, { recursive: true });
+    const subFile = join(subDir, 'agent-a1.jsonl');
+    writeFileSync(subFile, `${rec(999)}\n`); // 引入扫描前已存在的 sub-agent 历史
+    const store = fakeStore();
+    // 伪造旧格式账本:无 subagentsBaselined(也没该文件的 cursor)
+    store.set(
+      'pet-usage-ledger',
+      JSON.stringify({
+        petStartDate: '2026-06-01',
+        cursors: { [file]: 0 },
+        allTime: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
+        byDay: {},
+        lastOutputTs: null,
+        countedIds: [],
+        allTimeCostUSD: 0,
+        byDayCost: {},
+        fileModels: {},
+        lastModel: null
+      })
+    );
+    const led = new UsageLedger(store, now, root);
+    expect(led.ingest()).toBe(0); // 历史 999 不回算(基线哲学一致)
+    appendFileSync(subFile, `${rec(40)}\n`);
+    expect(led.ingest()).toBe(40); // 迁移后的增量正常计入
+  });
+
   // ---- 按模型逐条计价 ----
 
   const recModel = (output: number, model: string): string =>

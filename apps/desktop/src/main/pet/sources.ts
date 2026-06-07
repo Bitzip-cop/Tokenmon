@@ -28,7 +28,9 @@ export interface PetSource {
   pricing: Pricing | null;
 }
 
-// Claude:~/.claude/projects/<slug>/*.jsonl(两层)。
+// Claude:主会话 ~/.claude/projects/<slug>/*.jsonl(两层)
+// + sub-agent 转录 <slug>/<会话id>/subagents/agent-*.jsonl(Task/Agent 派出去的消耗单独落盘,主会话只有
+//   tool_result 文本不带 usage —— 不扫这层就会漏掉 sub-agent 的全部 token/成本)。
 function listClaude(root: string): string[] {
   const out: string[] = [];
   let dirs: string[];
@@ -38,13 +40,25 @@ function listClaude(root: string): string[] {
     return out;
   }
   for (const d of dirs) {
-    let names: string[];
+    let ents: Dirent[];
     try {
-      names = readdirSync(join(root, d));
+      ents = readdirSync(join(root, d), { withFileTypes: true });
     } catch {
       continue;
     }
-    for (const n of names) if (n.endsWith('.jsonl')) out.push(join(root, d, n));
+    for (const e of ents) {
+      if (e.name.endsWith('.jsonl')) out.push(join(root, d, e.name));
+      else if (e.isDirectory()) {
+        const sub = join(root, d, e.name, 'subagents');
+        let names: string[];
+        try {
+          names = readdirSync(sub);
+        } catch {
+          continue; // 不是会话目录 / 没派过 agent
+        }
+        for (const n of names) if (n.endsWith('.jsonl')) out.push(join(sub, n));
+      }
+    }
   }
   return out;
 }

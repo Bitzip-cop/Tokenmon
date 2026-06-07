@@ -4,6 +4,12 @@
 
 ## [unreleased]
 
+### 0.80 — 修漏计:sub-agent 转录的用量/活动全没算(2026-06-07)
+- 用户发现"派 sub-agent 做 research 时计价不动" → 排查实锤是真 bug:Task/Agent 派出去的 sub-agent 转录**单独落盘**在 `~/.claude/projects/<slug>/<会话id>/subagents/agent-*.jsonl`(带完整 `message.usage`,requestId 独立;主会话只有 tool_result 文本不带 usage),而 `listClaude` 只扫两层 → 账本永远读不到,**sub-agent 的 token/成本全漏**。研究型任务大头消耗恰在这层。
+- **账本**:`listClaude` 增扫 `<会话id>/subagents/*.jsonl`;旧账本一次性迁移(`subagentsBaselined`)——现存 sub-agent 文件按当前大小打基线,与首装「不回算历史」哲学一致,从本版起只计增量。
+- **活动感知**:`findActiveSessions` 同步增扫 —— 主会话等 Task 返回时自己不写、干活的是 sub-agent,之前会误判 waiting;现在 sub-agent 在写就示 working。
+- 验证:typecheck + 64 单测(新增 3:sub-agent 计入、迁移不回算、活跃含 subagents)+ build 全绿。
+
 ### 0.79 — hover 面板标注数据范围「仅本地会话」(2026-06-05)
 - 用户反馈"用了 Claude 桌面 App 但价格没被算出来" → 排查结论:**计价链路无 bug**(当日账本 $21.53 与官方单价手算一致);是数据源限制 —— App/网页**聊天**用量在云端、本地零落地,原理上不可计。桌面 App 里的 **Code** 会话(`entrypoint:"claude-desktop"`)照常写 `~/.claude/projects`、照常计入。
 - 防误解:hover 面板底部加小字 `Local Claude Code sessions only` / `Local Codex CLI sessions only`(title 悬停给完整解释)。面板区 140px 容得下(最满 Codex 面板 ~110px + 小字 ~12px),窗口尺寸不动。

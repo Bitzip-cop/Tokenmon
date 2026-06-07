@@ -337,6 +337,8 @@ export interface UsageLedgerState {
   /** 最近一笔用量的模型(按 ts 取最新;HUD 名字行展示「Claude · Opus 4.8」用)。 */
   lastModel?: string | null;
   lastModelTs?: string | null;
+  /** 迁移标记:引入 sub-agent 转录扫描时,现存 subagents/*.jsonl 已按当前大小打过基线(只计此后增量)。 */
+  subagentsBaselined?: boolean;
 }
 
 /** 推给渲染层的消耗快照(账本数字 + 实时心情)。 */
@@ -373,7 +375,8 @@ export function emptyLedger(startDate: string): UsageLedgerState {
     byDayCost: {},
     fileModels: {},
     lastModel: null,
-    lastModelTs: null
+    lastModelTs: null,
+    subagentsBaselined: true // 新账本:基线本来就覆盖所有现存文件(含 subagents)
   };
 }
 

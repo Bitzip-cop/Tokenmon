@@ -174,4 +174,19 @@ describe('PetSessionWatcher(tail → 状态,含半行/衰减/轮换)', () => {
     expect(all).toContain(file2);
     expect(findActiveSessions('/proj/y', root)).toEqual([file2]);
   });
+
+  it('findActiveSessions:sub-agent 转录也算活跃(主会话等 Task 返回时不该误判 waiting)', () => {
+    const subDir = join(dir, 's-id', 'subagents');
+    mkdirSync(subDir, { recursive: true });
+    const agentFile = join(subDir, 'agent-a1.jsonl');
+    writeFileSync(agentFile, `${TOOL}\n`); // sub-agent 在干活
+    expect(findActiveSessions('/proj/x', root)).toContain(agentFile);
+    // 喂进状态机:sub-agent 的活动驱动 working
+    const seen2: PetState[] = [];
+    const w2 = new PetSessionWatcher('/proj/x', (s) => seen2.push(s), () => now, root);
+    w2.pollOnce(); // 附末尾
+    appendFileSync(agentFile, `${TOOL}\n`);
+    w2.pollOnce();
+    expect(seen2.at(-1)).toBe('working');
+  });
 });

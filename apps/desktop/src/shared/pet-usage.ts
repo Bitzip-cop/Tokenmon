@@ -161,11 +161,13 @@ export interface Pricing {
   cacheRead: number;
 }
 
-// 官方单价($/Mtok,2026-06 核对)。
-// Claude 按系列分档(同系列换版本价不变):Opus 4.5+ 全是 $5/$25;Opus 4.1/4.0 才是 $15/$75 老档。
+// 内置兜底单价($/Mtok,2026-06 核对)。线上以 pricing-updater 拉的远端表为准(见 setPricingOverrides),
+// 这里是离线/拉取失败时的安全网。
+// Claude 按系列分档(同系列换版本价不变):Fable 5 是 $10/$50 新顶档;Opus 4.5+ 全是 $5/$25;Opus 4.1/4.0 才是 $15/$75 老档。
 // 缓存:Claude 写 1.25×输入、读 0.1×输入;OpenAI 不收缓存写费(且 Codex totals 的 cacheWrite 恒 0)。
 // OpenAI 按版本号独立定价(5.4→5.5 也涨价),所以 Codex 切模型必须分档。
 export const DEFAULT_PRICING: Record<string, Pricing> = {
+  fable: { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 }, // Fable 5(新顶档,Opus 之上)
   opus: { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 }, // Opus 4.5/4.6/4.7/4.8 同档
   opusLegacy: { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 }, // Opus 4.1/4.0/Claude 3 Opus
   sonnet: { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },
@@ -175,17 +177,40 @@ export const DEFAULT_PRICING: Record<string, Pricing> = {
   gpt54mini: { input: 0.75, output: 4.5, cacheWrite: 0, cacheRead: 0.075 }
 };
 
+// ---- 远端价格表(自更新)----
+// pricing-updater(主进程)定期拉社区维护的模型价目表后注入;键为模型 id 全名(小写)。
+// 查价顺序:远端表精确命中 > 远端表去日期/后缀命中 > 内置分档启发式。厂商发新模型时远端表
+// 通常当天更新 → 无需改代码即可按新价计费;真没命中也只是落到该源主力档兜底,不会算崩。
+let PRICING_OVERRIDES: Record<string, Pricing> = {};
+
+export function setPricingOverrides(map: Record<string, Pricing>): void {
+  const next: Record<string, Pricing> = {};
+  for (const [k, v] of Object.entries(map)) next[k.toLowerCase()] = v;
+  PRICING_OVERRIDES = next;
+}
+
+/** 规整模型 id 供查表:去尾部日期戳(-20251001)与方括号变体后缀([1m])。 */
+function normalizeModelId(m: string): string {
+  return m.replace(/\[[^\]]*\]$/, '').replace(/-\d{8}$/, '');
+}
+
 /**
  * 按「源 + 模型名」挑单价。摄取时逐条调用 → 用户中途切模型(Opus↔Sonnet、GPT-5.5↔5.4)也按各自单价精准计费。
- * 未识别的模型按该源主力档兜底(claude→opus 现价、codex→gpt-5.5;含 codex-auto-review / <synthetic>)。
+ * 先查远端自更新表(精确 id),未命中再走内置分档;仍未识别按该源主力档兜底
+ * (claude→opus 现价、codex→gpt-5.5;含 codex-auto-review / <synthetic>)。
  */
 export function pricingForModel(source: PetSourceId, model: string | null): Pricing {
   const m = (model ?? '').toLowerCase();
+  if (m) {
+    const hit = PRICING_OVERRIDES[m] ?? PRICING_OVERRIDES[normalizeModelId(m)];
+    if (hit) return hit;
+  }
   if (source === 'codex') {
     if (m.includes('gpt-5.4-mini')) return DEFAULT_PRICING.gpt54mini;
     if (m.includes('gpt-5.4')) return DEFAULT_PRICING.gpt54;
     return DEFAULT_PRICING.gpt55;
   }
+  if (m.includes('fable')) return DEFAULT_PRICING.fable;
   if (m.includes('opus-4-1') || m.includes('opus-4-0') || m.includes('opus-4-2025') || m.includes('3-opus'))
     return DEFAULT_PRICING.opusLegacy;
   if (m.includes('haiku')) return DEFAULT_PRICING.haiku;
@@ -200,12 +225,17 @@ export function pricingFor(model: string | null): Pricing {
 
 /**
  * 模型展示名(HUD 名字行用):`claude-opus-4-8` → `Opus 4.8`、`claude-haiku-4-5-20251001` → `Haiku 4.5`、
+ * `claude-fable-5`(含 `claude-fable-5[1m]` 变体)→ `Fable 5`、
  * `gpt-5.5` → `GPT-5.5`;`<synthetic>` → null(不展示);其余原样。
  */
 export function modelLabel(model: string | null): string | null {
   if (!model || model === '<synthetic>') return null;
-  const claude = model.match(/^claude-(opus|sonnet|haiku)-(\d+)-(\d+)/);
-  if (claude) return `${claude[1][0].toUpperCase()}${claude[1].slice(1)} ${claude[2]}.${claude[3]}`;
+  const claude = model.match(/^claude-(fable|opus|sonnet|haiku)-(\d+)(?:-(\d+))?/);
+  if (claude) {
+    const family = `${claude[1][0].toUpperCase()}${claude[1].slice(1)}`;
+    // minor 位限 1-2 位数:单版本号模型(claude-fable-5-20260601)的日期戳不当 minor
+    return claude[3] && claude[3].length <= 2 ? `${family} ${claude[2]}.${claude[3]}` : `${family} ${claude[2]}`;
+  }
   if (/^gpt-/i.test(model)) return `GPT-${model.slice(4)}`; // gpt-5.5 → GPT-5.5(后缀如 -mini 保持原样)
   return model;
 }

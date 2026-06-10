@@ -6,6 +6,7 @@ import tray1xPath from './assets/trayTemplate.png?asset';
 import tray2xPath from './assets/trayTemplate@2x.png?asset';
 import { migrateLegacyData } from './config/paths';
 import { detectedSources } from './pet/sources';
+import { PricingUpdater } from './pet/pricing-updater';
 import { getDb, closeDb } from './db/sqlite';
 import { AppStateRepository } from './db/repositories/app-state-repository';
 import { EventSender, registerIpcHandlers } from './ipc';
@@ -25,11 +26,16 @@ function openPet(source: PetSourceId, index: number): void {
   });
 }
 
+// 模型价格自更新:持引用防 GC(内部有 setInterval)。
+let pricingUpdater: PricingUpdater | null = null;
+
 function setupServices(): void {
   const db = getDb();
   const appStateRepo = new AppStateRepository(db);
   const sender = new EventSender();
   registerIpcHandlers({ appStateRepo, sender });
+  pricingUpdater = new PricingUpdater(appStateRepo);
+  pricingUpdater.start(); // 先用缓存表,后台按需刷新;摄取计价即刻受益
   log.info('pet services ready');
 }
 

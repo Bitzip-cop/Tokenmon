@@ -10,6 +10,7 @@ import type { PetSource } from '../../src/main/pet/sources';
 
 // ---- 官方单价($/Mtok),2026-06 核对,独立手写 ----
 const OFFICIAL: Record<string, { in: number; out: number; cw: number }> = {
+  'claude-fable-5': { in: 10, out: 50, cw: 12.5 }, // Fable 5 新顶档(2026-06)
   'claude-opus-4-8': { in: 5, out: 25, cw: 6.25 },
   'claude-opus-4-7': { in: 5, out: 25, cw: 6.25 },
   'claude-sonnet-4-6': { in: 3, out: 15, cw: 3.75 },

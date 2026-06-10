@@ -4,6 +4,11 @@
 
 ## [unreleased]
 
+### 0.81 — Fable 5 计价 + 模型价格自更新(2026-06-10)
+- **Fable 5 入价目**:`claude-fable-5` 此前无对应档、掉进 opus 兜底($5/$25)→ 实际官方价 **$10/$50**(cacheWrite $12.5、cacheRead $1),成本被低估一半。`DEFAULT_PRICING` 加 `fable` 档,`pricingForModel` 按 `fable` 关键词分档;`modelLabel` 支持单版本号系列与变体后缀(`claude-fable-5[1m]` → `Fable 5`)。
+- **价格自更新(新增 `pricing-updater.ts`)**:此前价目表硬编码、出新模型必须改代码。现在主进程启动后拉 LiteLLM 社区价目表(`model_prices_and_context_window.json`,Anthropic/OpenAI 发新模型通常当天更新;ccusage 同源),换算成 $/MTok 注入 `pricingForModel` 远端表(实测过滤后 124 个 claude-*/gpt-* 模型,首方单价与内置表逐项一致)。三层兜底:远端表精确命中(含去日期戳/`[1m]` 规整)> app_state 缓存(离线重启可用)> 内置 `DEFAULT_PRICING` 分档启发式。24h 刷新一次,失败静默保持现状。
+- 验证:typecheck + 69 单测(新增 6:fable 分档/标签、LiteLLM 换算与缓存价补缺省、缓存命中不重拉、离线/空表回退)全绿;随机对账测试把 Fable 5 加入官方表混写场景。
+
 ### 0.80 — 修漏计:sub-agent 转录的用量/活动全没算(2026-06-07)
 - 用户发现"派 sub-agent 做 research 时计价不动" → 排查实锤是真 bug:Task/Agent 派出去的 sub-agent 转录**单独落盘**在 `~/.claude/projects/<slug>/<会话id>/subagents/agent-*.jsonl`(带完整 `message.usage`,requestId 独立;主会话只有 tool_result 文本不带 usage),而 `listClaude` 只扫两层 → 账本永远读不到,**sub-agent 的 token/成本全漏**。研究型任务大头消耗恰在这层。
 - **账本**:`listClaude` 增扫 `<会话id>/subagents/*.jsonl`;旧账本一次性迁移(`subagentsBaselined`)——现存 sub-agent 文件按当前大小打基线,与首装「不回算历史」哲学一致,从本版起只计增量。

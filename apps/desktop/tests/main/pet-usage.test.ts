@@ -89,7 +89,9 @@ describe('addTotals / costUSD / pricingFor', () => {
     expect(b.total).toBeLessThan(b.cacheRead); // total(≈5.7)远小于被排除的 cacheRead(≈14.5)
   });
 
-  it('Claude 按系列分档:Opus 4.5+ 现价 $5/$25,4.1/4.0 老档 $15/$75,同系列换版本不变', () => {
+  it('Claude 按系列分档:Fable 5 顶档 $10/$50,Opus 4.5+ 现价 $5/$25,4.1/4.0 老档 $15/$75,同系列换版本不变', () => {
+    expect(pricingFor('claude-fable-5')).toMatchObject({ input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 });
+    expect(pricingFor('claude-fable-5[1m]')).toEqual(pricingFor('claude-fable-5')); // 1M 上下文变体同价(无长上下文加价)
     expect(pricingFor('claude-opus-4-8')).toEqual(pricingFor('claude-opus-4-7')); // 4.7↔4.8 同价
     expect(pricingFor('claude-opus-4-8').output).toBe(25);
     expect(pricingFor('claude-opus-4-8').input).toBe(5);
@@ -102,6 +104,8 @@ describe('addTotals / costUSD / pricingFor', () => {
   });
 
   it('modelLabel:模型 id → 展示名', () => {
+    expect(modelLabel('claude-fable-5')).toBe('Fable 5'); // 单版本号系列
+    expect(modelLabel('claude-fable-5[1m]')).toBe('Fable 5'); // 变体后缀丢弃
     expect(modelLabel('claude-opus-4-8')).toBe('Opus 4.8');
     expect(modelLabel('claude-sonnet-4-6')).toBe('Sonnet 4.6');
     expect(modelLabel('claude-haiku-4-5-20251001')).toBe('Haiku 4.5'); // 日期后缀丢弃

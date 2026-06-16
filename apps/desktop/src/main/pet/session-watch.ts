@@ -111,9 +111,9 @@ const MAX_TRACKED = 6;
 
 /**
  * 列出**所有活跃**会话 jsonl(mtime 距真实时钟 ≤ ACTIVE_WINDOW_MS,按新旧排序,封顶 MAX_TRACKED)。
- * 含 sub-agent 转录(<会话id>/subagents/agent-*.jsonl):主会话等 Task 返回时自己不写,
- * 干活的是 sub-agent —— 不盯这层宠物会误判成 waiting。
- * 注意窗口判定用 **真实时钟**(mtime 是 fs 事实);状态衰减才用注入时钟。
+ * 含 sub-agent 转录(<会话id>/subagents/ 整棵子树:flat 的 agent-*.jsonl + workflows 下嵌套的 agent):
+ * 主会话等 Task / Workflow 返回时自己不写,干活的是 sub-agent —— 不盯这层(尤其 deep-research 等走 workflows
+ * 嵌套那层)宠物会误判成 waiting。注意窗口判定用 **真实时钟**(mtime 是 fs 事实);状态衰减才用注入时钟。
  */
 export function findActiveSessions(cwd: string | null, root: string = PROJECTS): string[] {
   const dirs: string[] = [];
@@ -132,6 +132,20 @@ export function findActiveSessions(cwd: string | null, root: string = PROJECTS):
     const mt = safeStatMs(f);
     if (mt >= cutoff) found.push({ f, mt });
   };
+  // subagents/ 子树递归收(含 workflows/wf_*/):缺一层就漏掉一半 sub-agent 的活动。
+  const considerTree = (treeDir: string): void => {
+    let ents: Dirent[];
+    try {
+      ents = readdirSync(treeDir, { withFileTypes: true });
+    } catch {
+      return; // 不是会话目录 / 没派过 agent
+    }
+    for (const e of ents) {
+      const p = join(treeDir, e.name);
+      if (e.isDirectory()) considerTree(p);
+      else if (e.name.endsWith('.jsonl')) consider(p);
+    }
+  };
   for (const dir of dirs) {
     let ents: Dirent[];
     try {
@@ -140,18 +154,8 @@ export function findActiveSessions(cwd: string | null, root: string = PROJECTS):
       continue;
     }
     for (const e of ents) {
-      if (e.name.endsWith('.jsonl')) {
-        consider(join(dir, e.name));
-      } else if (e.isDirectory()) {
-        const sub = join(dir, e.name, 'subagents');
-        let names: string[];
-        try {
-          names = readdirSync(sub);
-        } catch {
-          continue; // 不是会话目录 / 没派过 agent
-        }
-        for (const n of names) if (n.endsWith('.jsonl')) consider(join(sub, n));
-      }
+      if (e.name.endsWith('.jsonl')) consider(join(dir, e.name));
+      else if (e.isDirectory()) considerTree(join(dir, e.name, 'subagents'));
     }
   }
   return found

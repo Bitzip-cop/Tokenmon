@@ -28,9 +28,25 @@ export interface PetSource {
   pricing: Pricing | null;
 }
 
+/** 递归收集目录下所有 .jsonl(子目录也进)。目录不存在 → 静默返回。 */
+function collectJsonl(dir: string, out: string[]): void {
+  let ents: Dirent[];
+  try {
+    ents = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const e of ents) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) collectJsonl(p, out);
+    else if (e.name.endsWith('.jsonl')) out.push(p);
+  }
+}
+
 // Claude:主会话 ~/.claude/projects/<slug>/*.jsonl(两层)
-// + sub-agent 转录 <slug>/<会话id>/subagents/agent-*.jsonl(Task/Agent 派出去的消耗单独落盘,主会话只有
-//   tool_result 文本不带 usage —— 不扫这层就会漏掉 sub-agent 的全部 token/成本)。
+// + sub-agent 转录 <slug>/<会话id>/subagents/**(单独落盘,主会话只有 tool_result 文本不带 usage —— 不扫这层
+//   就会漏掉 sub-agent 的全部 token/成本)。subagents/ 下有两类:flat 的 agent-*.jsonl(Task/Agent 派出去),
+//   以及 workflows/wf_*/agent-*.jsonl(Workflow 编排 / deep-research 等更深一层)。整棵子树递归收,缺一层就漏一半。
 function listClaude(root: string): string[] {
   const out: string[] = [];
   let dirs: string[];
@@ -48,16 +64,7 @@ function listClaude(root: string): string[] {
     }
     for (const e of ents) {
       if (e.name.endsWith('.jsonl')) out.push(join(root, d, e.name));
-      else if (e.isDirectory()) {
-        const sub = join(root, d, e.name, 'subagents');
-        let names: string[];
-        try {
-          names = readdirSync(sub);
-        } catch {
-          continue; // 不是会话目录 / 没派过 agent
-        }
-        for (const n of names) if (n.endsWith('.jsonl')) out.push(join(sub, n));
-      }
+      else if (e.isDirectory()) collectJsonl(join(root, d, e.name, 'subagents'), out);
     }
   }
   return out;
@@ -66,20 +73,7 @@ function listClaude(root: string): string[] {
 // Codex:~/.codex/sessions/YYYY/MM/DD/*.jsonl(按日期多层 → 递归)。
 function listRecursive(root: string): string[] {
   const out: string[] = [];
-  const walk = (dir: string): void => {
-    let ents: Dirent[];
-    try {
-      ents = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of ents) {
-      const p = join(dir, e.name);
-      if (e.isDirectory()) walk(p);
-      else if (e.name.endsWith('.jsonl')) out.push(p);
-    }
-  };
-  walk(root);
+  collectJsonl(root, out);
   return out;
 }
 

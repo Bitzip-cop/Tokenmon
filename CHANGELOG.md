@@ -4,6 +4,12 @@
 
 ## [unreleased]
 
+### 0.82 — 修漏计(续):workflows 嵌套层的 sub-agent 转录又漏了一半(2026-06-16)
+- 用户复现"丢 sub-agent 做 research 还是不计价" → 0.80 只补了 `subagents/agent-*.jsonl` 直属那层,但 Workflow 编排 / deep-research 派出去的 agent 落在**更深一层** `subagents/workflows/wf_*/agent-*.jsonl`,`listClaude`/`findActiveSessions` 都只 `readdirSync` 一层、不递归 → 整层漏掉(本机实测 flat 131 个 vs 嵌套 134 个,**差不多漏掉一半 sub-agent 转录**的 token/成本与活动)。
+- **账本**:`listClaude` 改为递归收 `subagents/` 整棵子树(抽 `collectJsonl`,`listRecursive` 一并复用);旧账本再加一道一次性迁移(`subagentsWorkflowsBaselined`)—— 已 `subagentsBaselined` 的 0.80/0.81 用户只有这些嵌套文件缺 cursor,按当前大小打基线,不把历史 workflow 用量一次性读成尖峰。
+- **活动感知**:`findActiveSessions` 同步递归 `subagents/` 子树 —— deep-research 跑在嵌套层时主会话/直属层都不写,之前会误判 waiting,现在嵌套 agent 在写就示 working。
+- 验证:typecheck + 72 单测(新增 3:嵌套 workflow 计入、嵌套迁移不回算、嵌套活跃)全绿。
+
 ### 0.81 — Fable 5 计价 + 模型价格自更新(2026-06-10)
 - **Fable 5 入价目**:`claude-fable-5` 此前无对应档、掉进 opus 兜底($5/$25)→ 实际官方价 **$10/$50**(cacheWrite $12.5、cacheRead $1),成本被低估一半。`DEFAULT_PRICING` 加 `fable` 档,`pricingForModel` 按 `fable` 关键词分档;`modelLabel` 支持单版本号系列与变体后缀(`claude-fable-5[1m]` → `Fable 5`)。
 - **价格自更新(新增 `pricing-updater.ts`)**:此前价目表硬编码、出新模型必须改代码。现在主进程启动后拉 LiteLLM 社区价目表(`model_prices_and_context_window.json`,Anthropic/OpenAI 发新模型通常当天更新;ccusage 同源),换算成 $/MTok 注入 `pricingForModel` 远端表(实测过滤后 124 个 claude-*/gpt-* 模型,首方单价与内置表逐项一致)。三层兜底:远端表精确命中(含去日期戳/`[1m]` 规整)> app_state 缓存(离线重启可用)> 内置 `DEFAULT_PRICING` 分档启发式。24h 刷新一次,失败静默保持现状。

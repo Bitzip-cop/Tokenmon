@@ -189,4 +189,12 @@ describe('PetSessionWatcher(tail → 状态,含半行/衰减/轮换)', () => {
     w2.pollOnce();
     expect(seen2.at(-1)).toBe('working');
   });
+
+  it('findActiveSessions:嵌套 workflow 转录也算活跃(deep-research 等跑在 subagents/workflows 下)', () => {
+    const wfDir = join(dir, 's-id', 'subagents', 'workflows', 'wf_abc');
+    mkdirSync(wfDir, { recursive: true });
+    const wfFile = join(wfDir, 'agent-w1.jsonl');
+    writeFileSync(wfFile, `${TOOL}\n`); // 嵌套 workflow agent 在干活
+    expect(findActiveSessions('/proj/x', root)).toContain(wfFile);
+  });
 });

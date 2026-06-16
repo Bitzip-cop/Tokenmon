@@ -369,6 +369,8 @@ export interface UsageLedgerState {
   lastModelTs?: string | null;
   /** 迁移标记:引入 sub-agent 转录扫描时,现存 subagents/*.jsonl 已按当前大小打过基线(只计此后增量)。 */
   subagentsBaselined?: boolean;
+  /** 迁移标记:扫描扩到 subagents/ 整棵子树(含 workflows 下的嵌套 agent 转录)后,新列出的文件已按当前大小打过基线。 */
+  subagentsWorkflowsBaselined?: boolean;
 }
 
 /** 推给渲染层的消耗快照(账本数字 + 实时心情)。 */
@@ -406,7 +408,8 @@ export function emptyLedger(startDate: string): UsageLedgerState {
     fileModels: {},
     lastModel: null,
     lastModelTs: null,
-    subagentsBaselined: true // 新账本:基线本来就覆盖所有现存文件(含 subagents)
+    subagentsBaselined: true, // 新账本:基线本来就覆盖所有现存文件(含 subagents 整棵子树)
+    subagentsWorkflowsBaselined: true
   };
 }
 

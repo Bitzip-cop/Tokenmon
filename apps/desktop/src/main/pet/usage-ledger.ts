@@ -157,15 +157,20 @@ export class UsageLedger {
           for (const [day, t] of Object.entries(s.byDay)) s.byDayCost[day] = p ? costUSD(t, p) : 0;
         }
         if (!s.fileModels) s.fileModels = {};
-        if (!s.subagentsBaselined) {
-          // 旧账本迁移:首次引入 sub-agent 转录扫描 → 现存 subagents 文件按当前大小打基线
-          // (与首装「不回算历史」一致;此后增量正常计入)。
+        // 旧账本迁移:把当时未被 listFiles 列出、因而还没 cursor 的 subagents 子树文件按当前大小打基线
+        // (与首装「不回算历史」一致;此后增量正常计入)。两个标记分别对应两次扫描范围扩张:
+        //   subagentsBaselined          —— 0.80 首次引入 subagents/ 直属层扫描
+        //   subagentsWorkflowsBaselined —— 本次扩到整棵子树(含 workflows/wf_*/,deep-research 等);
+        //                                  老用户(已 subagentsBaselined)只有这些嵌套文件缺 cursor,只给它们打基线,
+        //                                  不然会把历史 workflow 用量一次性读成尖峰。
+        if (!s.subagentsBaselined || !s.subagentsWorkflowsBaselined) {
           for (const f of this.source.listFiles(this.root)) {
             if (f.includes(`${sep}subagents${sep}`) && s.cursors[f] === undefined) {
               s.cursors[f] = Math.max(0, safeSize(f));
             }
           }
           s.subagentsBaselined = true;
+          s.subagentsWorkflowsBaselined = true;
         }
         return s;
       } catch {

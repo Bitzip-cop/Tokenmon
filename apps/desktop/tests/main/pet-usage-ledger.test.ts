@@ -149,6 +149,49 @@ describe('UsageLedger(增量摄取账本)', () => {
     expect(led.ingest()).toBe(40); // 迁移后的增量正常计入
   });
 
+  it('嵌套 workflow 转录计入:subagents/workflows/wf_*/agent-*.jsonl 同账(deep-research 等)', () => {
+    writeFileSync(file, '');
+    const led = new UsageLedger(fakeStore(), now, root);
+    led.ingest();
+    // Workflow 编排派出去的 agent 落在更深一层
+    const wfDir = join(root, '-p-x', 's-id', 'subagents', 'workflows', 'wf_abc');
+    mkdirSync(wfDir, { recursive: true });
+    writeFileSync(join(wfDir, 'agent-w1.jsonl'), `${rec(70)}\n`);
+    appendFileSync(file, `${rec(30)}\n`);
+    expect(led.ingest()).toBe(100); // 主 30 + 嵌套 workflow agent 70(不递归就只有 30)
+    expect(led.snapshot().allTime.output).toBe(100);
+  });
+
+  it('旧账本迁移:已 subagentsBaselined 的老账本,新列出的嵌套 workflow 文件也打基线不回算', () => {
+    writeFileSync(file, '');
+    const wfDir = join(root, '-p-x', 's-id', 'subagents', 'workflows', 'wf_abc');
+    mkdirSync(wfDir, { recursive: true });
+    const wfFile = join(wfDir, 'agent-w1.jsonl');
+    writeFileSync(wfFile, `${rec(999)}\n`); // 扩到整棵子树扫描前就存在的嵌套历史
+    const store = fakeStore();
+    // 伪造 0.80/0.81 账本:subagentsBaselined=true,但无 subagentsWorkflowsBaselined(且没该嵌套文件的 cursor)
+    store.set(
+      'pet-usage-ledger',
+      JSON.stringify({
+        petStartDate: '2026-06-01',
+        cursors: { [file]: 0 },
+        allTime: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
+        byDay: {},
+        lastOutputTs: null,
+        countedIds: [],
+        allTimeCostUSD: 0,
+        byDayCost: {},
+        fileModels: {},
+        lastModel: null,
+        subagentsBaselined: true
+      })
+    );
+    const led = new UsageLedger(store, now, root);
+    expect(led.ingest()).toBe(0); // 历史 999 不回算(不被一次性补成尖峰)
+    appendFileSync(wfFile, `${rec(40)}\n`);
+    expect(led.ingest()).toBe(40); // 迁移后增量正常计入
+  });
+
   // ---- 按模型逐条计价 ----
 
   const recModel = (output: number, model: string): string =>

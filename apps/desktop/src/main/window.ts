@@ -55,6 +55,7 @@ const OVERLAY_H = Math.round(FRAME_H * PET_SCALE) + 42; // 精灵高 + HUD + 间
  *  (macOS 上 transparent 窗口 setBounds 后会丢透明、露白底;故宁可固定高度 + 下方留一段透明)。 */
 const OVERLAY_EXPAND = 140; // 容下 hover 面板(Today + Cost/Quota 行,底部留点空)
 const OVERLAY_GAP = 12; // 多只宠物并排时的间距
+const PET_SOURCE_LABELS: Record<PetSourceId, string> = { claude: 'Claude', codex: 'Codex' };
 
 export function createPetOverlay(source: PetSourceId = 'claude', index = 0): BrowserWindow {
   const win = new BrowserWindow({
@@ -98,6 +99,7 @@ export function createPetOverlay(source: PetSourceId = 'claude', index = 0): Bro
       // 动作设置:让被右键的桌宠把自己当前角色 id 报上来,再开设置窗口(渲染层知道自己的 source/角色)。
       { label: 'Action Mapping…', click: () => win.webContents.send('pet:tune-request', {}) },
       { type: 'separator' as const },
+      { label: `Close ${PET_SOURCE_LABELS[source]} pet`, click: () => win.close() },
       // 无 Dock/菜单栏(贴全屏的副作用),右键和托盘是仅有的退出口。
       { label: 'Quit Tokenmon', click: () => app.quit() }
     ]);

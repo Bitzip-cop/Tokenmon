@@ -16,14 +16,24 @@ import type { PetSourceId } from '@shared/pet-usage';
 
 const log = createLogger('main:app');
 
+const PET_SOURCE_LABELS: Record<PetSourceId, string> = { claude: 'Claude', codex: 'Codex' };
+const PET_SOURCE_ORDER: PetSourceId[] = ['claude', 'codex'];
+
 // 持有悬浮窗引用:Electron 窗口若没有 JS 引用可能被 GC → 窗口消失。closed 时清掉。
 const petWindows: Partial<Record<PetSourceId, BrowserWindow>> = {};
 function openPet(source: PetSourceId, index: number): void {
   const win = createPetOverlay(source, index);
   petWindows[source] = win;
+  refreshTrayMenu();
   win.on('closed', () => {
     delete petWindows[source];
+    refreshTrayMenu();
   });
+}
+
+function closePet(source: PetSourceId): void {
+  const win = petWindows[source];
+  if (win && !win.isDestroyed()) win.close();
 }
 
 // 模型价格自更新:持引用防 GC(内部有 setInterval)。
@@ -81,6 +91,29 @@ function openDetectedPets(): void {
 // 菜单栏(顶部状态栏)常驻图标:桌宠为了浮在全屏 app 之上会隐藏 Dock 图标(visibleOnFullScreen 的副作用),
 // 没有这个入口用户就无法退出/找回 app。持引用防 GC。
 let tray: Tray | null = null;
+function refreshTrayMenu(): void {
+  if (!tray) return;
+  const openSources = PET_SOURCE_ORDER.filter((source) => {
+    const win = petWindows[source];
+    return win && !win.isDestroyed();
+  });
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: 'Close pet',
+        enabled: openSources.length > 0,
+        submenu: openSources.map((source) => ({
+          label: PET_SOURCE_LABELS[source],
+          click: () => closePet(source)
+        }))
+      },
+      { label: 'Re-open pets', click: () => openDetectedPets() }, // 幂等:补缺的那几只
+      { type: 'separator' },
+      { label: 'Quit Tokenmon', role: 'quit' }
+    ])
+  );
+}
+
 function createTray(): void {
   // Template 图标(纯黑+alpha,系统自动适配深浅色菜单栏)。?asset 产物文件名带 hash,
   // 破坏了 @2x 同名邻居约定 → 手动挂两档分辨率,再标记为模板。源:assets/tray.svg。
@@ -90,13 +123,7 @@ function createTray(): void {
   icon.setTemplateImage(true);
   tray = new Tray(icon);
   tray.setToolTip('Tokenmon');
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: 'Re-open pets', click: () => openDetectedPets() }, // 幂等:补缺的那几只
-      { type: 'separator' },
-      { label: 'Quit Tokenmon', role: 'quit' }
-    ])
-  );
+  refreshTrayMenu();
 }
 
 void app.whenReady().then(() => {

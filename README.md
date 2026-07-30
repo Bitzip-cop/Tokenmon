@@ -26,7 +26,7 @@ Tokenmon sits on your desktop and turns your local **Claude Code** and **Codex**
 2. Drag **Tokenmon** into Applications.
 3. First launch: **right-click the app → Open** (the build is ad-hoc signed, not notarized — macOS will warn once).
 
-The pets appear at the bottom-right of your screen. Hover for today's numbers, drag to move, right-click for options.
+The pets appear at the bottom-right of your screen. Hover for today's numbers, drag to move, and right-click a pet to change or close it. You can also close a specific Claude or Codex pet from the Tokenmon menu bar icon; **Re-open pets** restores closed pets.
 
 > **Note:** Tokenmon starts counting from first launch — it doesn't retro-bill your history. The cost shown is an API-equivalent estimate; subscription plans aren't actually billed per token.
 

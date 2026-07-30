@@ -4,6 +4,12 @@
 
 ## [unreleased]
 
+### 0.83 — v0.1.5:单独关闭 Claude / Codex 桌宠(2026-07-30)
+- **托盘按来源关闭**:菜单栏新增 `Close pet` 子菜单,动态列出当前打开的 Claude / Codex 桌宠;选择其中一个只关闭对应悬浮窗,另一只继续运行,菜单随窗口状态即时刷新。
+- **右键直接关闭**:每只桌宠的原生右键菜单新增带来源名的 `Close Claude pet` / `Close Codex pet`;`Re-open pets` 仍可按检测到的本地工具恢复缺失桌宠。
+- README 中英文同步补充操作说明。版本 0.1.4 → 0.1.5。
+- 验证:typecheck + 72 单测 + build 全绿。
+
 ### 0.82 — 修漏计(续):workflows 嵌套层的 sub-agent 转录又漏了一半(2026-06-16)
 - 用户复现"丢 sub-agent 做 research 还是不计价" → 0.80 只补了 `subagents/agent-*.jsonl` 直属那层,但 Workflow 编排 / deep-research 派出去的 agent 落在**更深一层** `subagents/workflows/wf_*/agent-*.jsonl`,`listClaude`/`findActiveSessions` 都只 `readdirSync` 一层、不递归 → 整层漏掉(本机实测 flat 131 个 vs 嵌套 134 个,**差不多漏掉一半 sub-agent 转录**的 token/成本与活动)。
 - **账本**:`listClaude` 改为递归收 `subagents/` 整棵子树(抽 `collectJsonl`,`listRecursive` 一并复用);旧账本再加一道一次性迁移(`subagentsWorkflowsBaselined`)—— 已 `subagentsBaselined` 的 0.80/0.81 用户只有这些嵌套文件缺 cursor,按当前大小打基线,不把历史 workflow 用量一次性读成尖峰。

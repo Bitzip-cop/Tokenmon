@@ -9,6 +9,9 @@ import {
   pricingFor,
   pricingForModel,
   modelLabel,
+  quotaWindowLabel,
+  quotaWindows,
+  mergeQuotaSnapshots,
   dayKeyOf,
   moodFromActivity,
   MOOD_HAPPY_WITHIN_MS,
@@ -226,7 +229,8 @@ describe('parseCodexUsage(Codex token_count)', () => {
         rate_limits: {
           primary: { used_percent: 1.5, window_minutes: 300, resets_at: 1780553919 },
           secondary: { used_percent: 0.2, window_minutes: 10080, resets_at: 1781140719 },
-          plan_type: 'plus'
+          plan_type: 'plus',
+          limit_id: 'codex'
         }
       }
     });
@@ -237,10 +241,111 @@ describe('parseCodexUsage(Codex token_count)', () => {
       secondaryPercent: 0.2,
       secondaryWindowMinutes: 10080,
       secondaryResetsAt: 1781140719,
-      planType: 'plus'
+      planType: 'plus',
+      limitId: 'codex'
+    });
+  });
+  it('按真实窗口排序且生成标签:primary 是周窗口时不误标成 5h', () => {
+    const line = JSON.stringify({
+      type: 'event_msg',
+      timestamp: '2026-07-30T01:00:00Z',
+      payload: {
+        type: 'token_count',
+        info: { last_token_usage: { output_tokens: 1 } },
+        rate_limits: {
+          primary: { used_percent: 6, window_minutes: 10080, resets_at: 1785985788 },
+          secondary: null,
+          plan_type: 'prolite',
+          limit_id: 'codex'
+        }
+      }
+    });
+    const quota = asUsage(parseCodexUsage(line)).quota;
+    expect(quota).toMatchObject({ usedPercent: 6, windowMinutes: 10080, limitId: 'codex' });
+    expect(quotaWindowLabel(quota?.windowMinutes ?? 0)).toBe('wk');
+    expect(quotaWindowLabel(300)).toBe('5h');
+  });
+  it('quota 可独立于 token 增量更新(无 last_token_usage 也保留)', () => {
+    const line = JSON.stringify({
+      type: 'event_msg',
+      timestamp: '2026-07-30T01:00:00Z',
+      payload: {
+        type: 'token_count',
+        info: { last_token_usage: null },
+        rate_limits: {
+          primary: { used_percent: 7, window_minutes: 10080 },
+          limit_id: 'codex'
+        }
+      }
+    });
+    const parsed = asUsage(parseCodexUsage(line));
+    expect(parsed.totals).toEqual(emptyTotals());
+    expect(parsed.quota).toMatchObject({ usedPercent: 7, windowMinutes: 10080, limitId: 'codex' });
+  });
+  it('primary / secondary 不是时间语义:较短窗口始终排在前面', () => {
+    const line = JSON.stringify({
+      type: 'event_msg',
+      timestamp: '2026-07-30T01:00:00Z',
+      payload: {
+        type: 'token_count',
+        info: { last_token_usage: { output_tokens: 1 } },
+        rate_limits: {
+          primary: { used_percent: 20, window_minutes: 10080 },
+          secondary: { used_percent: 4, window_minutes: 300 }
+        }
+      }
+    });
+    expect(asUsage(parseCodexUsage(line)).quota).toMatchObject({
+      usedPercent: 4,
+      windowMinutes: 300,
+      secondaryPercent: 20,
+      secondaryWindowMinutes: 10080
     });
   });
   it('无 rate_limits → quota null', () => {
     expect(asUsage(parseCodexUsage(tc({ input_tokens: 100, output_tokens: 10 }))).quota).toBeNull();
+  });
+});
+
+describe('Codex quota 窗口合并', () => {
+  const both = {
+    usedPercent: 12,
+    windowMinutes: 300,
+    resetsAt: Date.parse('2026-07-30T02:00:00Z') / 1000,
+    secondaryPercent: 34,
+    secondaryWindowMinutes: 10080,
+    secondaryResetsAt: Date.parse('2026-08-05T00:00:00Z') / 1000,
+    planType: 'plus',
+    limitId: 'codex'
+  };
+  const weeklyOnly = {
+    usedPercent: 35,
+    windowMinutes: 10080,
+    resetsAt: Date.parse('2026-08-05T00:00:00Z') / 1000,
+    planType: 'plus',
+    limitId: 'codex'
+  };
+
+  it('相同计划的稀疏周更新保留尚未过期的 5h 窗口', () => {
+    const merged = mergeQuotaSnapshots(both, weeklyOnly, '2026-07-30T01:00:00Z');
+    expect(quotaWindows(merged)).toEqual([
+      { usedPercent: 12, windowMinutes: 300, resetsAt: Date.parse('2026-07-30T02:00:00Z') / 1000 },
+      { usedPercent: 35, windowMinutes: 10080, resetsAt: Date.parse('2026-08-05T00:00:00Z') / 1000 }
+    ]);
+  });
+
+  it('已过重置时间的缺失窗口不保留', () => {
+    const merged = mergeQuotaSnapshots(both, weeklyOnly, '2026-07-30T03:00:00Z');
+    expect(quotaWindows(merged)).toEqual([
+      { usedPercent: 35, windowMinutes: 10080, resetsAt: Date.parse('2026-08-05T00:00:00Z') / 1000 }
+    ]);
+  });
+
+  it('计划变化时不混入旧计划窗口', () => {
+    const proliteWeekly = { ...weeklyOnly, usedPercent: 8, planType: 'prolite' };
+    const merged = mergeQuotaSnapshots(both, proliteWeekly, '2026-07-30T01:00:00Z');
+    expect(quotaWindows(merged)).toEqual([
+      { usedPercent: 8, windowMinutes: 10080, resetsAt: Date.parse('2026-08-05T00:00:00Z') / 1000 }
+    ]);
   });
 });

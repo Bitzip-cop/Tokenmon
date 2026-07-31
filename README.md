@@ -15,7 +15,7 @@ Tokenmon sits on your desktop and turns your local **Claude Code** and **Codex**
 - 🍽 **Live feeding** — tails your local session logs; new output tokens trigger the eating animation within seconds.
 - 😄 **Moods** — eating → happy (recent output) → bored (idle a while) → sad (no output for 2 days). Thresholds configurable.
 - 💰 **Accurate cost** — official per-model pricing (Claude Opus/Sonnet/Haiku tiers; GPT-5.5/5.4 per-version). Each usage record is priced by the model that produced it, so switching models mid-session stays accurate. Cache reads are excluded (free re-reads on subscriptions).
-- ⏳ **Real quota** (Codex) — 5-hour and weekly rate-limit percentages read straight from session logs, shown on hover.
+- ⏳ **Real quota** (Codex) — available rate-limit windows read straight from session logs, shown on hover.
 - 🎭 **Characters** — Clawd & Chispa bundled; import any [codex-pets](https://www.npmjs.com/package/codex-pets) character via right-click → *Import from Clipboard*; remap animation rows per character via *Action Mapping*.
 - 🔒 **Local-first** — your usage data never leaves your machine. No telemetry, no accounts, no server. The only network call is the optional character download you trigger yourself.
 - ⚙️ **Zero config** — auto-detects which tools you have (`~/.claude`, `~/.codex`) and shows one pet per tool.

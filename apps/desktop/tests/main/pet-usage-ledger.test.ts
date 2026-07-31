@@ -258,12 +258,27 @@ describe('UsageLedger(Codex:turn_context 声明模型)', () => {
   });
   const turnCtx = (model: string): string =>
     JSON.stringify({ type: 'turn_context', timestamp: `${DAY}T12:00:00Z`, payload: { model } });
-  const tokenCount = (output: number): string =>
+  const tokenCount = (
+    output: number,
+    rateLimits?: Record<string, unknown>,
+    timestamp = `${DAY}T12:00:00Z`
+  ): string =>
     JSON.stringify({
       type: 'event_msg',
-      timestamp: `${DAY}T12:00:00Z`,
-      payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 0, output_tokens: output } } }
+      timestamp,
+      payload: {
+        type: 'token_count',
+        info: { last_token_usage: { input_tokens: 0, output_tokens: output } },
+        ...(rateLimits ? { rate_limits: rateLimits } : {})
+      }
     });
+  const rateLimits = (limitId: string, usedPercent: number): Record<string, unknown> => ({
+    limit_id: limitId,
+    limit_name: limitId === 'codex' ? null : 'Model-specific quota',
+    primary: { used_percent: usedPercent, window_minutes: 10080, resets_at: 1785985788 },
+    secondary: null,
+    plan_type: 'prolite'
+  });
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'pet-led-codex-'));
@@ -303,5 +318,81 @@ describe('UsageLedger(Codex:turn_context 声明模型)', () => {
     appendFileSync(file, `${tokenCount(1_000_000)}\n`);
     led.ingest();
     expect(led.snapshot().todayCostUSD).toBeCloseTo(30, 6);
+  });
+
+  it('通用 codex quota 不被时间更晚的模型专属 quota 覆盖', () => {
+    writeFileSync(file, '');
+    const led = new UsageLedger(fakeStore(), now, root, codexSource(root));
+    led.ingest();
+    appendFileSync(
+      file,
+      `${tokenCount(1, rateLimits('codex', 6), `${DAY}T12:00:01Z`)}\n` +
+        `${tokenCount(1, rateLimits('codex_bengalfox', 0), `${DAY}T12:00:02Z`)}\n`
+    );
+    led.ingest();
+    expect(led.snapshot().lastQuota).toMatchObject({
+      limitId: 'codex',
+      usedPercent: 6,
+      windowMinutes: 10080
+    });
+  });
+
+  it('同一计划的稀疏更新按窗口合并:更新 wk 时仍保留未过期的 5h', () => {
+    writeFileSync(file, '');
+    const led = new UsageLedger(fakeStore(), now, root, codexSource(root));
+    led.ingest();
+    const bothWindows = {
+      limit_id: 'codex',
+      plan_type: 'plus',
+      primary: { used_percent: 10, window_minutes: 300, resets_at: Date.parse(`${DAY}T14:00:00Z`) / 1000 },
+      secondary: { used_percent: 20, window_minutes: 10080, resets_at: Date.parse('2026-06-10T00:00:00Z') / 1000 }
+    };
+    const weeklyUpdate = {
+      limit_id: 'codex',
+      plan_type: 'plus',
+      primary: { used_percent: 21, window_minutes: 10080, resets_at: Date.parse('2026-06-10T00:00:00Z') / 1000 },
+      secondary: null
+    };
+    appendFileSync(
+      file,
+      `${tokenCount(1, bothWindows, `${DAY}T12:00:01Z`)}\n${tokenCount(1, weeklyUpdate, `${DAY}T12:00:02Z`)}\n`
+    );
+    led.ingest();
+    expect(led.snapshot().lastQuota).toMatchObject({
+      usedPercent: 10,
+      windowMinutes: 300,
+      secondaryPercent: 21,
+      secondaryWindowMinutes: 10080
+    });
+  });
+
+  it('旧账本迁移:从最近日志重选通用 codex quota,修正已缓存的模型专属值', () => {
+    const standard = tokenCount(1, rateLimits('codex', 6), `${DAY}T12:00:01Z`);
+    const modelSpecific = tokenCount(1, rateLimits('codex_bengalfox', 0), `${DAY}T12:00:02Z`);
+    const existing = `${standard}\n${modelSpecific}\n`;
+    writeFileSync(file, existing);
+    const store = fakeStore();
+    store.set(
+      'pet-usage-ledger-codex-test',
+      JSON.stringify({
+        petStartDate: DAY,
+        cursors: { [file]: Buffer.byteLength(existing) },
+        allTime: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
+        byDay: {},
+        lastOutputTs: null,
+        countedIds: [],
+        lastQuota: { usedPercent: 0, windowMinutes: 10080, resetsAt: 1785985788, planType: 'prolite' },
+        lastQuotaTs: `${DAY}T12:00:02Z`,
+        allTimeCostUSD: 0,
+        byDayCost: {},
+        fileModels: {},
+        lastModel: null,
+        lastModelTs: null,
+        subagentsBaselined: true,
+        subagentsWorkflowsBaselined: true
+      })
+    );
+    const led = new UsageLedger(store, now, root, codexSource(root));
+    expect(led.snapshot().lastQuota).toMatchObject({ limitId: 'codex', usedPercent: 6 });
   });
 });

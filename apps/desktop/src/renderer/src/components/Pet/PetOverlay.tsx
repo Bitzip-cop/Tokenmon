@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PetSprite } from './PetSprite';
 import { MoodIcon } from './MoodIcon';
-import { modelLabel } from '@shared/pet-usage';
+import { modelLabel, quotaWindowLabel, quotaWindows } from '@shared/pet-usage';
 import { makeConfig, BUNDLED_SPRITES, DEFAULT_CHARACTER, SOURCE_LABEL } from './pets';
 import type { PetState } from '@shared/types/pet';
-import type { PetUsageSnapshot, PetSourceId, CharacterMapping } from '@shared/pet-usage';
+import type { PetUsageSnapshot, PetSourceId, CharacterMapping, PetQuota } from '@shared/pet-usage';
 import { useIpcEvent } from '../../hooks/use-ipc-event';
 import './Pet.css';
 
@@ -34,13 +34,43 @@ function fmtTokens(n: number): string {
 function fmtPct(p: number): string {
   return (p < 10 ? p.toFixed(1) : String(Math.round(p))) + '%';
 }
-function fmtReset(sec: number | null | undefined): string {
+function fmtResetRelative(sec: number | null | undefined): string {
   if (!sec) return '';
   const ms = sec * 1000 - Date.now();
   if (ms <= 0) return 'resets soon';
   const h = Math.floor(ms / 3_600_000);
   const m = Math.floor((ms % 3_600_000) / 60_000);
   return h > 0 ? `resets in ${h}h${m}m` : `resets in ${m}m`;
+}
+/** reset 是 epoch 秒；按用户本机时区显示紧凑的绝对日期时间。 */
+function fmtResetDateTime(sec: number): string {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).format(new Date(sec * 1000));
+}
+function quotaResetWindows(quota: PetQuota) {
+  return quotaWindows(quota).filter(
+    (window): window is typeof window & { resetsAt: number } =>
+      typeof window.resetsAt === 'number' && Number.isFinite(window.resetsAt) && window.resetsAt > 0
+  );
+}
+function fmtQuota(quota: PetQuota): string {
+  const windows = quotaWindows(quota);
+  const fiveHour = windows.find((w) => w.windowMinutes === 300);
+  const weekly = windows.find((w) => w.windowMinutes === 10080);
+  if (fiveHour || weekly) {
+    return `5h ${fiveHour ? fmtPct(fiveHour.usedPercent) : '—'} · wk ${weekly ? fmtPct(weekly.usedPercent) : '—'}`;
+  }
+  return windows.map((w) => `${quotaWindowLabel(w.windowMinutes)} ${fmtPct(w.usedPercent)}`).join(' · ');
+}
+function fmtQuotaReset(quota: PetQuota): string {
+  return quotaResetWindows(quota)
+    .map((w) => `${quotaWindowLabel(w.windowMinutes)} ${fmtResetRelative(w.resetsAt)}`)
+    .join(' · ');
 }
 
 export function PetOverlay({ scale = 0.55, source = 'claude' }: { scale?: number; source?: PetSourceId }): JSX.Element {
@@ -72,6 +102,7 @@ export function PetOverlay({ scale = 0.55, source = 'claude' }: { scale?: number
   const config = useMemo(() => makeConfig(id, spriteUrl, mapping), [id, spriteUrl, mapping]);
   const label = SOURCE_LABEL[source];
   const currentModel = modelLabel(usage?.lastModel ?? null);
+  const resetWindows = usage?.quota ? quotaResetWindows(usage.quota) : [];
 
   useEffect(() => {
     void window.tokenmon.invoke('pet:watch', { source });
@@ -151,11 +182,20 @@ export function PetOverlay({ scale = 0.55, source = 'claude' }: { scale?: number
             </div>
           )}
           {usage.quota && (
-            <div className="petoverlay__moreRow" title={fmtReset(usage.quota.resetsAt)}>
+            <div className="petoverlay__moreRow">
               <span>⏳ Quota</span>
-              <span className="petoverlay__quota">
-                5h {fmtPct(usage.quota.usedPercent)}
-                {usage.quota.secondaryPercent != null ? ` · wk ${fmtPct(usage.quota.secondaryPercent)}` : ''}
+              <span className="petoverlay__quota">{fmtQuota(usage.quota)}</span>
+            </div>
+          )}
+          {usage.quota && resetWindows.length > 0 && (
+            <div className="petoverlay__moreRow petoverlay__moreRow--reset" title={fmtQuotaReset(usage.quota)}>
+              <span>↻ Reset</span>
+              <span className="petoverlay__quota petoverlay__resetValues">
+                {resetWindows.map((window) => (
+                  <span key={window.windowMinutes}>
+                    {quotaWindowLabel(window.windowMinutes)} {fmtResetDateTime(window.resetsAt)}
+                  </span>
+                ))}
               </span>
             </div>
           )}

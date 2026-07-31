@@ -77,6 +77,8 @@ export function parseUsage(line: string): ParsedUsageLine | null {
  * · `turn_context` 行 → ParsedModelLine(payload.model 声明此后用量的模型;token_count 自身不带模型);
  * · `event_msg/token_count` 行 → ParsedUsageLine(`last_token_usage` 每回合增量,model=null 由账本按 turn_context 补)。
  * 映射到 TokenTotals:input=非缓存输入(input-cached)、output=产出(含 reasoning)、cacheRead=缓存输入、cacheWrite=0。
+ * quota 与 token 增量彼此独立:即使本行没有 last_token_usage / token 全为 0,只要带 rate_limits 也要返回,
+ * 否则会漏掉只刷新额度的事件。
  * id=null:Codex 是增量行、tail 一次读一行天然不重复,无需去重。
  */
 export function parseCodexUsage(line: string): ParsedLine | null {
@@ -89,7 +91,12 @@ export function parseCodexUsage(line: string): ParsedLine | null {
       type?: string;
       model?: unknown;
       info?: { last_token_usage?: Record<string, unknown> };
-      rate_limits?: { primary?: Record<string, unknown>; secondary?: Record<string, unknown>; plan_type?: unknown };
+      rate_limits?: {
+        primary?: Record<string, unknown>;
+        secondary?: Record<string, unknown>;
+        plan_type?: unknown;
+        limit_id?: unknown;
+      };
     };
   };
   try {
@@ -102,9 +109,11 @@ export function parseCodexUsage(line: string): ParsedLine | null {
     return typeof m === 'string' && m ? { kind: 'model', model: m } : null;
   }
   if (d.payload?.type !== 'token_count') return null;
+  const quota = parseQuota(d.payload.rate_limits);
   const lt = d.payload.info?.last_token_usage;
-  if (!lt || typeof lt !== 'object') return null;
-  const num = (k: string): number => (typeof lt[k] === 'number' ? (lt[k] as number) : 0);
+  if ((!lt || typeof lt !== 'object') && !quota) return null;
+  const usage = lt && typeof lt === 'object' ? lt : {};
+  const num = (k: string): number => (typeof usage[k] === 'number' ? (usage[k] as number) : 0);
   const cached = num('cached_input_tokens');
   const totals: TokenTotals = {
     input: Math.max(0, num('input_tokens') - cached), // 非缓存输入
@@ -112,36 +121,69 @@ export function parseCodexUsage(line: string): ParsedLine | null {
     cacheWrite: 0, // Codex 不单列缓存写
     cacheRead: cached
   };
-  if (totals.input === 0 && totals.output === 0 && totals.cacheRead === 0) return null;
+  if (totals.input === 0 && totals.output === 0 && totals.cacheRead === 0 && !quota) return null;
   return {
     kind: 'usage',
     totals,
     ts: typeof d.timestamp === 'string' ? d.timestamp : null,
     id: null,
     model: null,
-    quota: parseQuota(d.payload.rate_limits)
+    quota
   };
 }
 
-/** 从 Codex token_count 的 rate_limits 取真实额度(无 primary.used_percent 则 null)。 */
+/**
+ * 从 Codex token_count 的 rate_limits 取真实额度。
+ * primary / secondary 只是协议槽位,不保证分别等于 5h / 周；按 window_minutes 从短到长规整后交给 UI。
+ */
 function parseQuota(
-  rl: { primary?: Record<string, unknown>; secondary?: Record<string, unknown>; plan_type?: unknown } | undefined
+  rl:
+    | {
+        primary?: Record<string, unknown>;
+        secondary?: Record<string, unknown>;
+        plan_type?: unknown;
+        limit_id?: unknown;
+      }
+    | undefined
 ): PetQuota | null {
   if (!rl || typeof rl !== 'object') return null;
-  const p = rl.primary;
-  if (!p || typeof p.used_percent !== 'number') return null;
   const n = (o: Record<string, unknown> | undefined, k: string): number | undefined =>
     o && typeof o[k] === 'number' ? (o[k] as number) : undefined;
-  const sec = rl.secondary;
+  const windows = [rl.primary, rl.secondary]
+    .map((raw, index) => ({
+      index,
+      usedPercent: n(raw, 'used_percent'),
+      windowMinutes: n(raw, 'window_minutes') ?? 0,
+      resetsAt: n(raw, 'resets_at') ?? null
+    }))
+    .filter((w): w is typeof w & { usedPercent: number } => w.usedPercent !== undefined)
+    .sort((a, b) => {
+      const am = a.windowMinutes > 0 ? a.windowMinutes : Number.POSITIVE_INFINITY;
+      const bm = b.windowMinutes > 0 ? b.windowMinutes : Number.POSITIVE_INFINITY;
+      return am - bm || a.index - b.index;
+    });
+  const [primary, secondary] = windows;
+  if (!primary) return null;
   return {
-    usedPercent: p.used_percent as number,
-    windowMinutes: n(p, 'window_minutes') ?? 0,
-    resetsAt: n(p, 'resets_at') ?? null,
-    secondaryPercent: n(sec, 'used_percent'),
-    secondaryWindowMinutes: n(sec, 'window_minutes'),
-    secondaryResetsAt: n(sec, 'resets_at') ?? null,
-    planType: typeof rl.plan_type === 'string' ? rl.plan_type : null
+    usedPercent: primary.usedPercent,
+    windowMinutes: primary.windowMinutes,
+    resetsAt: primary.resetsAt,
+    secondaryPercent: secondary?.usedPercent,
+    secondaryWindowMinutes: secondary?.windowMinutes,
+    secondaryResetsAt: secondary?.resetsAt ?? null,
+    planType: typeof rl.plan_type === 'string' ? rl.plan_type : null,
+    limitId: typeof rl.limit_id === 'string' ? rl.limit_id : null
   };
+}
+
+/** quota 窗口标签由真实分钟数生成,不再假定 primary 固定为 5h。 */
+export function quotaWindowLabel(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes <= 0) return 'quota';
+  if (minutes === 7 * 24 * 60) return 'wk';
+  if (minutes % (7 * 24 * 60) === 0) return `${minutes / (7 * 24 * 60)}wk`;
+  if (minutes % (24 * 60) === 0) return `${minutes / (24 * 60)}d`;
+  if (minutes % 60 === 0) return `${minutes / 60}h`;
+  return `${minutes}m`;
 }
 
 /** 把 timestamp 归到「本地日期」桶键(YYYY-MM-DD);无效则 'unknown'。 */
@@ -285,13 +327,79 @@ export interface CharacterMapping {
 
 /** 真实额度(Codex 的 rate_limits;Claude 本地拿不到)。usedPercent 单位为百分数(0..100)。 */
 export interface PetQuota {
-  usedPercent: number; // 主窗口(5h)已用%
-  windowMinutes: number; // 主窗口分钟(300=5h)
-  resetsAt: number | null; // 主窗口重置(epoch 秒)
-  secondaryPercent?: number; // 次窗口(周)已用%
+  usedPercent: number; // 较短窗口已用%;只有一个窗口时就是该窗口
+  windowMinutes: number; // 窗口分钟(300=5h,10080=周)
+  resetsAt: number | null; // 该窗口重置(epoch 秒)
+  secondaryPercent?: number; // 第二个(通常更长)窗口已用%
   secondaryWindowMinutes?: number;
   secondaryResetsAt?: number | null;
   planType?: string | null;
+  /** Codex 限额池。`codex` 是通用额度；`codex_*` 可能是某个模型的独立额度。 */
+  limitId?: string | null;
+}
+
+export interface PetQuotaWindow {
+  usedPercent: number;
+  windowMinutes: number;
+  resetsAt: number | null;
+}
+
+/** 把兼容旧 IPC 结构的主/次字段展开成窗口列表。 */
+export function quotaWindows(quota: PetQuota): PetQuotaWindow[] {
+  const windows: PetQuotaWindow[] = [
+    {
+      usedPercent: quota.usedPercent,
+      windowMinutes: quota.windowMinutes,
+      resetsAt: quota.resetsAt
+    }
+  ];
+  if (quota.secondaryPercent != null) {
+    windows.push({
+      usedPercent: quota.secondaryPercent,
+      windowMinutes: quota.secondaryWindowMinutes ?? 0,
+      resetsAt: quota.secondaryResetsAt ?? null
+    });
+  }
+  return windows.sort((a, b) => {
+    const am = a.windowMinutes > 0 ? a.windowMinutes : Number.POSITIVE_INFINITY;
+    const bm = b.windowMinutes > 0 ? b.windowMinutes : Number.POSITIVE_INFINITY;
+    return am - bm;
+  });
+}
+
+/**
+ * Codex 的 rolling rate-limit 事件可能只更新一个窗口。相同额度池、相同计划下按窗口合并，
+ * 但不保留已在新事件时间之前重置的旧窗口；切计划/额度池时直接采用新快照，避免展示过期 quota。
+ */
+export function mergeQuotaSnapshots(current: PetQuota, next: PetQuota, nextTs: string): PetQuota {
+  if (current.limitId && next.limitId && current.limitId !== next.limitId) return next;
+  if (current.planType && next.planType && current.planType !== next.planType) return next;
+
+  const observedSec = Date.parse(nextTs) / 1000;
+  const windows = new Map<number, PetQuotaWindow>();
+  for (const window of quotaWindows(current)) {
+    const expired = Number.isFinite(observedSec) && window.resetsAt != null && window.resetsAt <= observedSec;
+    if (!expired) windows.set(window.windowMinutes, window);
+  }
+  for (const window of quotaWindows(next)) windows.set(window.windowMinutes, window);
+  const [primary, secondary] = Array.from(windows.values())
+    .sort((a, b) => {
+      const am = a.windowMinutes > 0 ? a.windowMinutes : Number.POSITIVE_INFINITY;
+      const bm = b.windowMinutes > 0 ? b.windowMinutes : Number.POSITIVE_INFINITY;
+      return am - bm;
+    })
+    .slice(0, 2);
+
+  return {
+    usedPercent: primary.usedPercent,
+    windowMinutes: primary.windowMinutes,
+    resetsAt: primary.resetsAt,
+    secondaryPercent: secondary?.usedPercent,
+    secondaryWindowMinutes: secondary?.windowMinutes,
+    secondaryResetsAt: secondary?.resetsAt ?? null,
+    planType: next.planType ?? current.planType ?? null,
+    limitId: next.limitId ?? current.limitId ?? null
+  };
 }
 
 /** 刚喂过多久内算"正在吃"(应 > 摄取 tick,使连续产出时持续显示吃)。 */
@@ -367,6 +475,8 @@ export interface UsageLedgerState {
   /** 最近一笔用量的模型(按 ts 取最新;HUD 名字行展示「Claude · Opus 4.8」用)。 */
   lastModel?: string | null;
   lastModelTs?: string | null;
+  /** 已迁移到按 limit_id 选择通用 Codex quota 的账本格式。 */
+  quotaLimitAware?: boolean;
   /** 迁移标记:引入 sub-agent 转录扫描时,现存 subagents/*.jsonl 已按当前大小打过基线(只计此后增量)。 */
   subagentsBaselined?: boolean;
   /** 迁移标记:扫描扩到 subagents/ 整棵子树(含 workflows 下的嵌套 agent 转录)后,新列出的文件已按当前大小打过基线。 */
@@ -408,6 +518,7 @@ export function emptyLedger(startDate: string): UsageLedgerState {
     fileModels: {},
     lastModel: null,
     lastModelTs: null,
+    quotaLimitAware: true,
     subagentsBaselined: true, // 新账本:基线本来就覆盖所有现存文件(含 subagents 整棵子树)
     subagentsWorkflowsBaselined: true
   };

@@ -272,7 +272,7 @@
   backdrop-filter: blur(4px);
   white-space: nowrap;
 }
-/* Codex 真实额度(5h used_percent),HUD 里淡蓝高亮一下。 */
+/* Codex 真实额度(按日志实际窗口),HUD 里淡蓝高亮一下。 */
 .petoverlay__quota {
   color: #9fd2ff;
 }
@@ -315,6 +315,15 @@
 }
 .petoverlay__moreRow > span:first-child {
   opacity: 0.7;
+}
+/* Quota reset 与其他数据行同列；双窗口时在同一字段内右对齐分两行，避免横向挤压。 */
+.petoverlay__moreRow--reset {
+  align-items: flex-start;
+}
+.petoverlay__resetValues {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
 }
 /* 数据范围小字(面板底):只统计本地会话,App/网页聊天看不到 —— 防"为什么聊天没被计费"的误解 */
 .petoverlay__moreNote {

@@ -53,7 +53,7 @@ const OVERLAY_W = Math.max(Math.round(FRAME_W * PET_SCALE) + 28, 212); // 精灵
 const OVERLAY_H = Math.round(FRAME_H * PET_SCALE) + 42; // 精灵高 + HUD + 间距(折叠态)
 /** 「今日用量」面板所需高度。窗口**固定**为 OVERLAY_H + 此值,面板用 CSS :hover 显隐、**不 resize**
  *  (macOS 上 transparent 窗口 setBounds 后会丢透明、露白底;故宁可固定高度 + 下方留一段透明)。 */
-const OVERLAY_EXPAND = 140; // 容下 hover 面板(Today + Cost/Quota 行,底部留点空)
+const OVERLAY_EXPAND = 170; // 容下 hover 面板(Today + Cost/Quota + 最多双窗口 Reset,底部留点空)
 const OVERLAY_GAP = 12; // 多只宠物并排时的间距
 const PET_SOURCE_LABELS: Record<PetSourceId, string> = { claude: 'Claude', codex: 'Codex' };
 

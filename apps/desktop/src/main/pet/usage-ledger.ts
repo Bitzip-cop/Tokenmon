@@ -10,6 +10,7 @@ import {
   emptyTotals,
   costUSD,
   pricingForModel,
+  mergeQuotaSnapshots,
   moodFromActivity,
   MOOD_HAPPY_WITHIN_MS,
   MOOD_SAD_AFTER_MS,
@@ -68,7 +69,22 @@ function safeMtime(file: string): number {
     return 0;
   }
 }
-/** 扫最近若干会话文件的尾部(只读尾巴,便宜):取"最后产出时刻"+"最新真实额度"+"最近模型"。供基线/迁移用。 */
+
+/** 通用 `codex` quota 优先于模型专属 quota；同一优先级内再取最新时间。 */
+function shouldReplaceQuota(
+  candidate: PetQuota,
+  candidateTs: string,
+  current: PetQuota | null,
+  currentTs: string | null
+): boolean {
+  if (!current || !currentTs) return true;
+  // 旧 Codex 日志没有 limit_id,视作通用额度保持向后兼容；明确命名的其他池才降级。
+  const priority = (q: PetQuota): number => (q.limitId === 'codex' || q.limitId == null ? 1 : 0);
+  const delta = priority(candidate) - priority(current);
+  return delta !== 0 ? delta > 0 : candidateTs >= currentTs;
+}
+
+/** 扫最近若干会话文件的尾部(只读尾巴,便宜):取"最后产出时刻"+"首选真实额度"+"最近模型"。供基线/迁移用。 */
 function scanTail(
   root: string,
   source: PetSource
@@ -103,8 +119,8 @@ function scanTail(
         continue;
       }
       if (u.totals.output > 0 && u.ts && (!lastOutputTs || u.ts > lastOutputTs)) lastOutputTs = u.ts;
-      if (u.quota && u.ts && (!lastQuotaTs || u.ts > lastQuotaTs)) {
-        lastQuota = u.quota;
+      if (u.quota && u.ts && shouldReplaceQuota(u.quota, u.ts, lastQuota, lastQuotaTs)) {
+        lastQuota = lastQuota ? mergeQuotaSnapshots(lastQuota, u.quota, u.ts) : u.quota;
         lastQuotaTs = u.ts;
       }
       const eff = u.model ?? curModel;
@@ -157,6 +173,16 @@ export class UsageLedger {
           for (const [day, t] of Object.entries(s.byDay)) s.byDayCost[day] = p ? costUSD(t, p) : 0;
         }
         if (!s.fileModels) s.fileModels = {};
+        if (this.source.id === 'codex' && !s.quotaLimitAware) {
+          // 旧版不记录 limit_id,可能把更晚到达的模型专属额度当成通用额度。
+          // 从最近日志强制重选一次,修正已有错误缓存；此后增量按优先级维护。
+          const t = scanTail(this.root, this.source);
+          if (t.lastQuota) {
+            s.lastQuota = t.lastQuota;
+            s.lastQuotaTs = t.lastQuotaTs;
+          }
+          s.quotaLimitAware = true;
+        }
         // 旧账本迁移:把当时未被 listFiles 列出、因而还没 cursor 的 subagents 子树文件按当前大小打基线
         // (与首装「不回算历史」一致;此后增量正常计入)。两个标记分别对应两次扫描范围扩张:
         //   subagentsBaselined          —— 0.80 首次引入 subagents/ 直属层扫描
@@ -234,8 +260,10 @@ export class UsageLedger {
           this.state.lastModel = eff; // 最近一笔用量的模型(HUD 名字行)
           this.state.lastModelTs = u.ts;
         }
-        if (u.quota && u.ts && (!this.state.lastQuotaTs || u.ts >= this.state.lastQuotaTs)) {
-          this.state.lastQuota = u.quota; // 取最新 ts 的真实额度(Codex)
+        if (u.quota && u.ts && shouldReplaceQuota(u.quota, u.ts, this.state.lastQuota ?? null, this.state.lastQuotaTs ?? null)) {
+          this.state.lastQuota = this.state.lastQuota
+            ? mergeQuotaSnapshots(this.state.lastQuota, u.quota, u.ts)
+            : u.quota;
           this.state.lastQuotaTs = u.ts;
         }
       }

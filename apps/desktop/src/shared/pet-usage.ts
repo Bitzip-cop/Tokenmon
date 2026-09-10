@@ -30,11 +30,19 @@ export interface ParsedUsageLine {
   id: string | null;
   model: string | null;
   quota?: PetQuota | null;
+  /** Request metadata, never the configured maximum context window. */
+  billing?: BillingContext;
 }
 /** 「此后该文件的用量都按此模型计价」(Codex turn_context 行;本行无用量)。 */
 export interface ParsedModelLine {
   kind: 'model';
   model: string;
+  serviceTier?: string;
+}
+export interface BillingContext {
+  inputTokens?: number;
+  serviceTier?: string;
+  cacheWriteReported?: boolean;
 }
 export type ParsedLine = ParsedUsageLine | ParsedModelLine;
 
@@ -76,7 +84,7 @@ export function parseUsage(line: string): ParsedUsageLine | null {
  * 解析 Codex 会话行:
  * · `turn_context` 行 → ParsedModelLine(payload.model 声明此后用量的模型;token_count 自身不带模型);
  * · `event_msg/token_count` 行 → ParsedUsageLine(`last_token_usage` 每回合增量,model=null 由账本按 turn_context 补)。
- * 映射到 TokenTotals:input=非缓存输入(input-cached)、output=产出(含 reasoning)、cacheRead=缓存输入、cacheWrite=0。
+ * 映射到 TokenTotals:input=普通输入(input-cached-write)、output=产出(含 reasoning)、cacheRead/Write=缓存读写。
  * quota 与 token 增量彼此独立:即使本行没有 last_token_usage / token 全为 0,只要带 rate_limits 也要返回,
  * 否则会漏掉只刷新额度的事件。
  * id=null:Codex 是增量行、tail 一次读一行天然不重复,无需去重。
@@ -90,6 +98,7 @@ export function parseCodexUsage(line: string): ParsedLine | null {
     payload?: {
       type?: string;
       model?: unknown;
+      service_tier?: unknown;
       info?: { last_token_usage?: Record<string, unknown> };
       rate_limits?: {
         primary?: Record<string, unknown>;
@@ -106,7 +115,9 @@ export function parseCodexUsage(line: string): ParsedLine | null {
   }
   if (d.type === 'turn_context') {
     const m = d.payload?.model;
-    return typeof m === 'string' && m ? { kind: 'model', model: m } : null;
+    return typeof m === 'string' && m
+      ? { kind: 'model', model: m, ...(typeof d.payload?.service_tier === 'string' ? { serviceTier: d.payload.service_tier } : {}) }
+      : null;
   }
   if (d.payload?.type !== 'token_count') return null;
   const quota = parseQuota(d.payload.rate_limits);
@@ -115,20 +126,26 @@ export function parseCodexUsage(line: string): ParsedLine | null {
   const usage = lt && typeof lt === 'object' ? lt : {};
   const num = (k: string): number => (typeof usage[k] === 'number' ? (usage[k] as number) : 0);
   const cached = num('cached_input_tokens');
+  const written = num('cache_write_input_tokens');
   const totals: TokenTotals = {
-    input: Math.max(0, num('input_tokens') - cached), // 非缓存输入
+    input: Math.max(0, num('input_tokens') - cached - written), // 三类输入互斥，缓存写入不能重复计普通输入
     output: num('output_tokens'), // 含 reasoning_output_tokens
-    cacheWrite: 0, // Codex 不单列缓存写
+    cacheWrite: written,
     cacheRead: cached
   };
-  if (totals.input === 0 && totals.output === 0 && totals.cacheRead === 0 && !quota) return null;
+  if (totals.input === 0 && totals.output === 0 && totals.cacheWrite === 0 && totals.cacheRead === 0 && !quota) return null;
   return {
     kind: 'usage',
     totals,
     ts: typeof d.timestamp === 'string' ? d.timestamp : null,
     id: null,
     model: null,
-    quota
+    quota,
+    billing: {
+      inputTokens: num('input_tokens'),
+      cacheWriteReported: typeof usage.cache_write_input_tokens === 'number',
+      ...(typeof d.payload?.service_tier === 'string' ? { serviceTier: d.payload.service_tier } : {})
+    }
   };
 }
 
@@ -196,17 +213,24 @@ export function dayKeyOf(ts: string | null, nowMs: number): string {
 // ---- 成本(notional / API 等价,订阅用户不实扣)----
 
 /** 各类 token 单价($/百万 token)。价格会变 → 估算 + 可配。 */
-export interface Pricing {
+export interface TokenRates {
   input: number;
   output: number;
   cacheWrite: number;
   cacheRead: number;
 }
+/** 按请求选择价格。远端规则保留阈值/服务档位，不从模型版本号推断未来费率。 */
+export interface Pricing extends TokenRates {
+  rulesVersion?: 2;
+  longContext?: Array<{ aboveInputTokens: number; rates: Partial<TokenRates> }>;
+  tiers?: Record<string, Pricing>;
+  missingRates?: Array<keyof TokenRates>;
+}
 
-// 内置兜底单价($/Mtok,2026-06 核对)。线上以 pricing-updater 拉的远端表为准(见 setPricingOverrides),
+// 内置兜底单价($/Mtok)。OpenAI 2026-09-10 核对: https://developers.openai.com/api/docs/pricing
 // 这里是离线/拉取失败时的安全网。
 // Claude 按系列分档(同系列换版本价不变):Fable 5 是 $10/$50 新顶档;Opus 4.5+ 全是 $5/$25;Opus 4.1/4.0 才是 $15/$75 老档。
-// 缓存:Claude 写 1.25×输入、读 0.1×输入;OpenAI 不收缓存写费(且 Codex totals 的 cacheWrite 恒 0)。
+// GPT-5.6/Astra 开始收缓存写费；规则按已核实的模型配置，不推广到未知型号。
 // OpenAI 按版本号独立定价(5.4→5.5 也涨价),所以 Codex 切模型必须分档。
 export const DEFAULT_PRICING: Record<string, Pricing> = {
   fable: { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 }, // Fable 5(新顶档,Opus 之上)
@@ -214,9 +238,36 @@ export const DEFAULT_PRICING: Record<string, Pricing> = {
   opusLegacy: { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 }, // Opus 4.1/4.0/Claude 3 Opus
   sonnet: { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },
   haiku: { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 },
-  gpt55: { input: 5, output: 30, cacheWrite: 0, cacheRead: 0.5 },
-  gpt54: { input: 2.5, output: 15, cacheWrite: 0, cacheRead: 0.25 },
+  astra: modernOpenAIPricing(10, 50),
+  sol: modernOpenAIPricing(4, 20),
+  terra: modernOpenAIPricing(2, 12),
+  luna: modernOpenAIPricing(0.2, 1.2),
+  gpt55: {
+    input: 5, output: 30, cacheWrite: 0, cacheRead: 0.5,
+    longContext: [{ aboveInputTokens: 272_000, rates: { input: 10, output: 45, cacheRead: 1 } }]
+  },
+  gpt54: {
+    input: 2.5, output: 15, cacheWrite: 0, cacheRead: 0.25,
+    longContext: [{ aboveInputTokens: 272_000, rates: { input: 5, output: 22.5, cacheRead: 0.5 } }]
+  },
   gpt54mini: { input: 0.75, output: 4.5, cacheWrite: 0, cacheRead: 0.075 }
+};
+
+function modernOpenAIPricing(input: number, output: number): Pricing {
+  const rates = (scale: number): Pricing => ({
+    input: input * scale, output: output * scale, cacheWrite: input * 1.25 * scale, cacheRead: input * 0.1 * scale,
+    longContext: [{ aboveInputTokens: 272_000, rates: {
+      input: input * 2 * scale, output: output * 1.5 * scale,
+      cacheWrite: input * 2.5 * scale, cacheRead: input * 0.2 * scale
+    } }]
+  });
+  return { ...rates(1), tiers: { priority: rates(2), flex: rates(0.5), batch: rates(0.5) } };
+}
+
+const OPENAI_BUILTINS: Record<string, string> = {
+  'gpt-6-astra': 'astra', 'gpt-5.6': 'sol', 'gpt-5.6-sol': 'sol',
+  'gpt-5.6-terra': 'terra', 'gpt-5.6-luna': 'luna',
+  'gpt-5.5': 'gpt55', 'gpt-5.4': 'gpt54', 'gpt-5.4-mini': 'gpt54mini'
 };
 
 // ---- 远端价格表(自更新)----
@@ -224,16 +275,21 @@ export const DEFAULT_PRICING: Record<string, Pricing> = {
 // 查价顺序:远端表精确命中 > 远端表去日期/后缀命中 > 内置分档启发式。厂商发新模型时远端表
 // 通常当天更新 → 无需改代码即可按新价计费;真没命中也只是落到该源主力档兜底,不会算崩。
 let PRICING_OVERRIDES: Record<string, Pricing> = {};
+const missingModels = new Set<string>();
+export function hasMissingModelPrices(): boolean { return missingModels.size > 0; }
 
 export function setPricingOverrides(map: Record<string, Pricing>): void {
   const next: Record<string, Pricing> = {};
   for (const [k, v] of Object.entries(map)) next[k.toLowerCase()] = v;
   PRICING_OVERRIDES = next;
+  for (const model of missingModels) {
+    if (next[model] || next[normalizeModelId(model)]) missingModels.delete(model);
+  }
 }
 
 /** 规整模型 id 供查表:去尾部日期戳(-20251001)与方括号变体后缀([1m])。 */
 function normalizeModelId(m: string): string {
-  return m.replace(/\[[^\]]*\]$/, '').replace(/-\d{8}$/, '');
+  return m.replace(/\[[^\]]*\]$/, '').replace(/-(?:\d{8}|\d{4}-\d{2}-\d{2})$/, '');
 }
 
 /**
@@ -243,13 +299,14 @@ function normalizeModelId(m: string): string {
  */
 export function pricingForModel(source: PetSourceId, model: string | null): Pricing {
   const m = (model ?? '').toLowerCase();
+  const builtin = source === 'codex' ? DEFAULT_PRICING[OPENAI_BUILTINS[normalizeModelId(m)]] : undefined;
   if (m) {
     const hit = PRICING_OVERRIDES[m] ?? PRICING_OVERRIDES[normalizeModelId(m)];
-    if (hit) return hit;
+    if (hit) return hit.rulesVersion === 2 ? hit : { ...builtin, ...hit }; // 仅旧缓存补离线规则，新表缺失的规则不能猜测
   }
   if (source === 'codex') {
-    if (m.includes('gpt-5.4-mini')) return DEFAULT_PRICING.gpt54mini;
-    if (m.includes('gpt-5.4')) return DEFAULT_PRICING.gpt54;
+    if (builtin) return builtin;
+    if (m) missingModels.add(m);
     return DEFAULT_PRICING.gpt55;
   }
   if (m.includes('fable')) return DEFAULT_PRICING.fable;
@@ -282,27 +339,70 @@ export function modelLabel(model: string | null): string | null {
   return model;
 }
 
-/** 合计成本($)。**不含 cache_read**(对订阅用户那是免费重读上下文)——只算 in+out+cacheWrite。 */
+/** API token 成本，包括缓存读写。订阅额度和实际账单另算。 */
 export function costUSD(t: TokenTotals, p: Pricing): number {
-  return (t.input * p.input + t.output * p.output + t.cacheWrite * p.cacheWrite) / 1_000_000;
+  return (t.input * p.input + t.output * p.output + t.cacheWrite * p.cacheWrite + t.cacheRead * p.cacheRead) / 1_000_000;
+}
+
+export const COST_WARNING_LABELS = {
+  'unknown-model': 'Model price unavailable; fallback estimate used.',
+  'unknown-tier': 'Service tier not recorded; Standard estimate used.',
+  'unsupported-tier': 'Service tier price unavailable; Standard estimate used.',
+  'missing-cache-write': 'Cache write usage not recorded; estimate may be low.',
+  'missing-rate': 'Some token rates are unavailable; estimate may be low.',
+  'legacy-cost': 'Includes historical estimates from before the billing fix.'
+} as const;
+export type CostWarning = keyof typeof COST_WARNING_LABELS;
+
+/** 每笔请求调用，不能拿每天/会话累计输入判断长上下文。 */
+export function estimateUsageCost(source: PetSourceId, model: string | null, totals: TokenTotals, billing: BillingContext = {}): {
+  cost: number; warnings: CostWarning[];
+} {
+  const p = pricingForModel(source, model);
+  const warnings: CostWarning[] = [];
+  const m = normalizeModelId((model ?? '').toLowerCase());
+  if (source === 'codex' && !PRICING_OVERRIDES[(model ?? '').toLowerCase()] && !PRICING_OVERRIDES[m] && !OPENAI_BUILTINS[m]) {
+    warnings.push('unknown-model');
+  }
+  let tier = billing.serviceTier?.toLowerCase();
+  if (tier === 'fast') tier = 'priority';
+  if (source === 'codex' && (!tier || tier === 'auto')) warnings.push('unknown-tier');
+  const nonstandard = !!tier && !['auto', 'default', 'standard'].includes(tier);
+  const tierPrice = tier ? p.tiers?.[tier] : undefined;
+  let selected: Pricing = nonstandard && tierPrice ? tierPrice : p;
+  if (nonstandard && !tierPrice) warnings.push('unsupported-tier');
+  if (source === 'codex' && p.cacheWrite > 0 && !billing.cacheWriteReported) warnings.push('missing-cache-write');
+  const inputTokens = billing.inputTokens ?? totals.input + totals.cacheRead + totals.cacheWrite;
+  if (nonstandard && p.longContext?.some(b => inputTokens > b.aboveInputTokens) &&
+      !selected.longContext?.some(b => inputTokens > b.aboveInputTokens)) {
+    warnings.push('unsupported-tier');
+    selected = p; // 未知的长上下文/档位组合，明确降为 Standard 估算
+  }
+  if (selected.missingRates?.some(k => totals[k] > 0)) warnings.push('missing-rate');
+  const band = selected.longContext?.filter(b => inputTokens > b.aboveInputTokens)
+    .sort((a, b) => b.aboveInputTokens - a.aboveInputTokens)[0];
+  if (band && (['cacheRead', 'cacheWrite'] as const).some(k => totals[k] > 0 && selected[k] > 0 && band.rates[k] == null)) {
+    warnings.push('missing-rate');
+  }
+  return { cost: costUSD(totals, { ...selected, ...band?.rates }), warnings: [...new Set(warnings)] };
 }
 
 export interface CostBreakdown {
   input: number;
   output: number;
   cacheWrite: number;
-  /** 仅供参考展示,**不计入 total**。 */
+  /** 缓存读取也计入 API token 成本。 */
   cacheRead: number;
   total: number;
 }
 
-/** 按 token 类型拆开的成本($)。total 不含 cache_read;cacheRead 字段仅供参考显示。 */
+/** 按 token 类型拆开的成本($)。 */
 export function costBreakdown(t: TokenTotals, p: Pricing): CostBreakdown {
   const input = (t.input * p.input) / 1_000_000;
   const output = (t.output * p.output) / 1_000_000;
   const cacheWrite = (t.cacheWrite * p.cacheWrite) / 1_000_000;
   const cacheRead = (t.cacheRead * p.cacheRead) / 1_000_000;
-  return { input, output, cacheWrite, cacheRead, total: input + output + cacheWrite };
+  return { input, output, cacheWrite, cacheRead, total: input + output + cacheWrite + cacheRead };
 }
 
 // ---- 心情(mood = 最近有没有 output;不再用"饱腹值/额度")----
@@ -472,6 +572,9 @@ export interface UsageLedgerState {
   byDayCost?: Record<string, number>;
   /** 文件 → 最近声明的模型(Codex turn_context;跨 tick 持久,后续 token_count 按此计价)。 */
   fileModels?: Record<string, string>;
+  fileServiceTiers?: Record<string, string>;
+  costAlgorithmVersion?: number;
+  costWarningsByDay?: Record<string, CostWarning[]>;
   /** 最近一笔用量的模型(按 ts 取最新;HUD 名字行展示「Claude · Opus 4.8」用)。 */
   lastModel?: string | null;
   lastModelTs?: string | null;
@@ -501,6 +604,7 @@ export interface PetUsageSnapshot {
   showCost: boolean;
   /** 最近一笔用量的模型(原始 id;渲染层用 modelLabel 美化;null = 暂未知)。 */
   lastModel: string | null;
+  costWarnings?: CostWarning[];
 }
 
 export function emptyLedger(startDate: string): UsageLedgerState {
@@ -516,6 +620,9 @@ export function emptyLedger(startDate: string): UsageLedgerState {
     allTimeCostUSD: 0,
     byDayCost: {},
     fileModels: {},
+    fileServiceTiers: {},
+    costAlgorithmVersion: 2,
+    costWarningsByDay: {},
     lastModel: null,
     lastModelTs: null,
     quotaLimitAware: true,

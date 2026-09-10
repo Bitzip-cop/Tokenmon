@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PetSprite } from './PetSprite';
 import { MoodIcon } from './MoodIcon';
-import { modelLabel, quotaWindowLabel, quotaWindows } from '@shared/pet-usage';
+import { COST_WARNING_LABELS, modelLabel, quotaWindowLabel, quotaWindows } from '@shared/pet-usage';
 import { makeConfig, BUNDLED_SPRITES, DEFAULT_CHARACTER, SOURCE_LABEL } from './pets';
 import type { PetState } from '@shared/types/pet';
 import type { PetUsageSnapshot, PetSourceId, CharacterMapping, PetQuota } from '@shared/pet-usage';
@@ -150,7 +150,7 @@ export function PetOverlay({ scale = 0.55, source = 'claude' }: { scale?: number
         <div className="petoverlay__hud">
           <MoodIcon mood={usage.mood} />
           {usage.showCost && (
-            <span title="Today's total cost (input + output + cache write; cache read excluded). Hover for details.">
+            <span title="API token estimate including cache reads and writes; not a subscription bill. Hover for details.">
               🍽 ≈{fmtCost(usage.todayCostUSD)}
             </span>
           )}
@@ -169,7 +169,7 @@ export function PetOverlay({ scale = 0.55, source = 'claude' }: { scale?: number
           </div>
           <div className="petoverlay__moreRow">
             <span>⟳ Cache</span>
-            {/* Codex 数据源没有缓存写字段(OpenAI 不收缓存写费)→ 恒 0,只显 r,免得像坏数据 */}
+            {/* 只在记录到缓存写入时显示写入 token 数 */}
             <span>
               {usage.today.cacheWrite > 0 ? `w ${fmtTokens(usage.today.cacheWrite)} · ` : ''}r{' '}
               {fmtTokens(usage.today.cacheRead)}
@@ -197,6 +197,12 @@ export function PetOverlay({ scale = 0.55, source = 'claude' }: { scale?: number
                   </span>
                 ))}
               </span>
+            </div>
+          )}
+          {usage.showCost && (
+            <div className="petoverlay__moreNote" title={(usage.costWarnings ?? []).map(w => COST_WARNING_LABELS[w]).join(' ')}>
+              API token estimate · includes cache
+              {(usage.costWarnings?.length ?? 0) > 0 && <span> · ⚠ assumptions</span>}
             </div>
           )}
           <div className="petoverlay__moreNote" title={SOURCE_NOTE[source].title}>

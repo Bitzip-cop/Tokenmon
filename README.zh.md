@@ -14,10 +14,10 @@ Tokenmon 趴在你的桌面上，把本机 **Claude Code** 和 **Codex** 的 tok
 
 - 🍽 **实时喂养** —— 增量读取本机会话日志，新产出 token 数秒内触发进食动画。
 - 😄 **心情** —— 在吃 → 开心（近期有产出）→ 无聊（闲了一阵）→ 难过（两天没产出）。阈值可配。
-- 💰 **精准成本** —— 按官方单价分模型计费（Claude 按 Opus/Sonnet/Haiku 系列分档；GPT-5.5/5.4 按版本独立定价）。每笔用量按产生它的模型计价，中途切模型也准。缓存读不计入（订阅免费重读）。
+- 💰 **API token 成本估算** —— 逐请求按模型、上下文长度和已记录的服务档位计价，包含缓存读写。缺少档位、用量或价格时显示估算提示。
 - ⏳ **真实额度**（Codex）—— 可用限额窗口直接读自会话日志，hover 可见。
 - 🎭 **形象系统** —— 内置 Clawd 和 Chispa；右键「Import from Clipboard」可导入任意 [codex-pets](https://www.npmjs.com/package/codex-pets) 形象；「Action Mapping」按角色重配动画行。
-- 🔒 **本地优先** —— 用量数据不离开你的机器。无遥测、无账号、无服务器；唯一的网络请求是你主动触发的形象下载。
+- 🔒 **本地优先** —— 用量数据不离开你的机器。无遥测、无账号、无服务器；网络请求包括自动获取公开模型价格表，以及你主动触发的形象下载。
 - ⚙️ **零配置** —— 自动检测本机装了哪些工具（`~/.claude` / `~/.codex`），每个工具一只宠。
 
 ## 安装（macOS，Apple Silicon）
@@ -63,3 +63,14 @@ pnpm dist      # 打包 .dmg(apps/desktop/release/)
 ## 许可
 
 [MIT](LICENSE)
+
+## 计费与自动更新
+
+- 四类 token 分别计价：普通输入、输出、缓存写入、缓存读取。Codex 普通输入 = `input_tokens - cached_input_tokens - cache_write_input_tokens`，避免重复收费。
+- LiteLLM 公开价格表每 24 小时自动刷新；遇到未知 Codex 模型会在一分钟内检查提前刷新（最多每小时请求一次），失败后保留缓存并每小时重试。无需每次模型发布都手动更新。
+- 新模型沿用现有字段协议时，基础价、长上下文阶梯、Fast/priority、Flex、Batch 费率可以自动加载。官方新增计费维度或日志字段时仍需升级算法；社区表收录也可能滞后。
+- Astra / GPT-5.6 的长上下文按每笔请求实际输入超过 272,000 判断，不按当天累计或最大上下文容量判断。缺少服务档位时按 Standard 估算并提示，不猜测 Fast 状态。
+- 金额只估算 API token 成本，不含工具调用费、地区附加费或账户专属规则，不能当作订阅扣款或额度消耗。
+- 旧账本金额保留并标记历史口径，不自动按今天的价格重算。启动更新后的应用后，新摄取记录才使用新算法。
+
+价格规则核对日期：2026-09-10。依据：[官方价格](https://developers.openai.com/api/docs/pricing)、[缓存计费公式](https://developers.openai.com/api/docs/guides/prompt-caching)。

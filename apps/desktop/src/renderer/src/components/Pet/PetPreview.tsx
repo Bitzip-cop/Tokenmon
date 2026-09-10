@@ -81,14 +81,14 @@ export function PetPreview(): JSX.Element {
                 <div key={label} className="pethud__row">
                   <span className="pethud__k">{label}</span>
                   <span className="pethud__cost">
-                    total ≈{fmtCost(b.total)} (output {fmtCost(b.output)}/↓{fmtTokens(t.output)}) · cache read {fmtCost(b.cacheRead)} excluded
+                    total ≈{fmtCost(b.total)} (output {fmtCost(b.output)}/↓{fmtTokens(t.output)}) · cache read {fmtCost(b.cacheRead)} included
                   </span>
                 </div>
               );
             })}
           </div>
           <div className="pethud__note">
-            since {usage.petStartDate} · API-equivalent estimate (not billed on subscriptions) · cache_read excluded
+            since {usage.petStartDate} · API-equivalent estimate (not billed on subscriptions) · cache reads included
           </div>
         </div>
       )}

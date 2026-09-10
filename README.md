@@ -14,10 +14,10 @@ Tokenmon sits on your desktop and turns your local **Claude Code** and **Codex**
 
 - 🍽 **Live feeding** — tails your local session logs; new output tokens trigger the eating animation within seconds.
 - 😄 **Moods** — eating → happy (recent output) → bored (idle a while) → sad (no output for 2 days). Thresholds configurable.
-- 💰 **Accurate cost** — official per-model pricing (Claude Opus/Sonnet/Haiku tiers; GPT-5.5/5.4 per-version). Each usage record is priced by the model that produced it, so switching models mid-session stays accurate. Cache reads are excluded (free re-reads on subscriptions).
+- 💰 **API token cost estimate** — per-request model prices including cache reads/writes, context-length bands and recorded service tiers. Missing metadata or prices are marked as estimates.
 - ⏳ **Real quota** (Codex) — available rate-limit windows read straight from session logs, shown on hover.
 - 🎭 **Characters** — Clawd & Chispa bundled; import any [codex-pets](https://www.npmjs.com/package/codex-pets) character via right-click → *Import from Clipboard*; remap animation rows per character via *Action Mapping*.
-- 🔒 **Local-first** — your usage data never leaves your machine. No telemetry, no accounts, no server. The only network call is the optional character download you trigger yourself.
+- 🔒 **Local-first** — your usage data never leaves your machine. No telemetry, no accounts, no server. Network requests fetch public model prices automatically and character sprites when requested.
 - ⚙️ **Zero config** — auto-detects which tools you have (`~/.claude`, `~/.codex`) and shows one pet per tool.
 
 ## Install (macOS, Apple Silicon)
@@ -55,13 +55,21 @@ All optional, via environment variables:
 
 ## How cost is computed
 
-Cost = `input × in + output × out + cache_write × cw` per million tokens, summed per record using the price of the model that produced it. Cache *reads* are shown but excluded from the total.
+Cost = `(input × in + output × out + cache_write × cw + cache_read × cr) / 1,000,000`, using disjoint input categories and the rate for each request. Codex ordinary input is `input_tokens - cached_input_tokens - cache_write_input_tokens`.
+
+LiteLLM's public price table refreshes automatically every 24 hours; unknown Codex models prompt an earlier check (within a minute, throttled to once per hour). Failures retain cached/builtin prices and retry hourly. Model additions and price/band changes using the supported schema need no app update; new billing rules or log fields require a code update. There is no guarantee that community data is immediately current or complete.
+
+For Astra and GPT-5.6, requests above 272,000 input tokens use the long-context rates; Fast/priority, Flex and Batch rates are read from the table when provided. A missing service tier uses Standard with a visible warning. Missing cache-write counts or prices also generate warnings. These estimates exclude tool-call fees, regional uplifts and account-specific billing. Subscription limits are separate.
+
+Previously accumulated costs are preserved and marked as legacy estimates, not retroactively repriced. This fix takes effect for newly ingested usage after launching the updated app. Current reference: [OpenAI pricing](https://developers.openai.com/api/docs/pricing), checked 2026-09-10.
 
 | Model | In $/M | Out $/M |
 |---|---|---|
 | Claude Opus 4.5+ | 5 | 25 |
 | Claude Sonnet | 3 | 15 |
 | Claude Haiku | 1 | 5 |
+| GPT-6 Astra | 10 | 50 |
+| GPT-5.6 Sol | 4 | 20 |
 | GPT-5.5 | 5 | 30 |
 | GPT-5.4 | 2.50 | 15 |
 

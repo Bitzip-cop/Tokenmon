@@ -73,23 +73,23 @@ describe('addTotals / costUSD / pricingFor', () => {
     });
   });
 
-  it('合计成本 = in+out+cacheWrite,**不含 cache_read**', () => {
+  it('合计成本包含缓存读取', () => {
     const p = { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 };
     expect(costUSD({ input: 1_000_000, output: 1_000_000, cacheWrite: 0, cacheRead: 0 }, p)).toBeCloseTo(90, 6);
-    // cache_read 不计入合计 → 0
-    expect(costUSD({ ...emptyTotals(), cacheRead: 1_000_000 }, p)).toBe(0);
+    // cache_read 计入 API 成本
+    expect(costUSD({ ...emptyTotals(), cacheRead: 1_000_000 }, p)).toBe(1.5);
   });
 
-  it('costBreakdown:cacheRead 单列但**不进 total**;total = in+out+cacheWrite = costUSD', () => {
+  it('costBreakdown:四类 token 合计与 costUSD 一致', () => {
     const p = pricingFor('claude-opus-4-8');
     // 用户真实账本量级:output 19w、cache_read 2900w。
     const t = { input: 743, output: 190527, cacheWrite: 145117, cacheRead: 29063437 };
     const b = costBreakdown(t, p);
     expect(b.output).toBeCloseTo((190527 * 25) / 1e6, 4); // ≈4.76(Opus 现价 $25/M)
-    expect(b.cacheRead).toBeCloseTo((29063437 * 0.5) / 1e6, 4); // ≈14.5(仅展示)
-    expect(b.total).toBeCloseTo(b.input + b.output + b.cacheWrite, 6); // 不含 cacheRead
+    expect(b.cacheRead).toBeCloseTo((29063437 * 0.5) / 1e6, 4); // ≈14.5(计入合计)
+    expect(b.total).toBeCloseTo(b.input + b.output + b.cacheWrite + b.cacheRead, 6);
     expect(b.total).toBeCloseTo(costUSD(t, p), 6);
-    expect(b.total).toBeLessThan(b.cacheRead); // total(≈5.7)远小于被排除的 cacheRead(≈14.5)
+    expect(b.total).toBeGreaterThan(b.cacheRead);
   });
 
   it('Claude 按系列分档:Fable 5 顶档 $10/$50,Opus 4.5+ 现价 $5/$25,4.1/4.0 老档 $15/$75,同系列换版本不变', () => {

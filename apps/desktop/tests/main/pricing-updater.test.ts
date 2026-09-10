@@ -42,9 +42,9 @@ const LITELLM_SAMPLE = {
 describe('toOverrides:LiteLLM per-token → $/MTok', () => {
   it('换算 + 补缺省缓存价 + 去 provider 前缀 + 过滤无关条目', () => {
     const o = toOverrides(LITELLM_SAMPLE);
-    expect(o['claude-fable-5']).toEqual({ input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 });
-    expect(o['claude-opus-4-8']).toEqual({ input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 }); // 缓存价按惯例补
-    expect(o['gpt-5.5']).toEqual({ input: 5, output: 30, cacheWrite: 0, cacheRead: 0.5 }); // OpenAI 无缓存写费
+    expect(o['claude-fable-5']).toMatchObject({ input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 });
+    expect(o['claude-opus-4-8']).toMatchObject({ input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 }); // 缓存价按惯例补
+    expect(o['gpt-5.5']).toMatchObject({ input: 5, output: 30, cacheWrite: 0, cacheRead: 0.5 }); // OpenAI 无缓存写费
     expect(o['text-embedding-x']).toBeUndefined();
     expect(o['gemini-3-pro']).toBeUndefined();
     expect(o['gpt-broken']).toBeUndefined();
@@ -75,6 +75,7 @@ describe('PricingUpdater', () => {
   it('缓存新鲜则不拉;离线启动用缓存表', async () => {
     const store = fakeStore();
     store.data['model-pricing-cache'] = JSON.stringify({
+      schemaVersion: 2,
       fetchedAt: 999_000,
       overrides: { 'claude-fable-5': { input: 11, output: 55, cacheWrite: 13.75, cacheRead: 1.1 } }
     });

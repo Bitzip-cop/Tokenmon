@@ -9,7 +9,7 @@ import {
   emptyLedger,
   emptyTotals,
   costUSD,
-  pricingForModel,
+  estimateUsageCost,
   mergeQuotaSnapshots,
   moodFromActivity,
   MOOD_HAPPY_WITHIN_MS,
@@ -19,7 +19,8 @@ import {
   type UsageLedgerState,
   type TokenTotals,
   type PetUsageSnapshot,
-  type PetQuota
+  type PetQuota,
+  type CostWarning
 } from '@shared/pet-usage';
 import { PET_SOURCES, type PetSource } from './sources';
 import { createLogger } from '../logging/logger';
@@ -173,6 +174,15 @@ export class UsageLedger {
           for (const [day, t] of Object.entries(s.byDay)) s.byDayCost[day] = p ? costUSD(t, p) : 0;
         }
         if (!s.fileModels) s.fileModels = {};
+        if (!s.fileServiceTiers) s.fileServiceTiers = {};
+        if (s.costAlgorithmVersion !== 2) {
+          // 无逐请求历史/费率版本，不能安全重算旧聚合。保留原金额并标记口径边界。
+          s.costWarningsByDay ??= {};
+          for (const [day, cost] of Object.entries(s.byDayCost ?? {})) {
+            if (cost > 0) s.costWarningsByDay[day] = [...new Set([...(s.costWarningsByDay[day] ?? []), 'legacy-cost' as const])];
+          }
+          s.costAlgorithmVersion = 2;
+        }
         if (this.source.id === 'codex' && !s.quotaLimitAware) {
           // 旧版不记录 limit_id,可能把更晚到达的模型专属额度当成通用额度。
           // 从最近日志强制重选一次,修正已有错误缓存；此后增量按优先级维护。
@@ -227,11 +237,16 @@ export class UsageLedger {
     let newOutput = 0;
     const seen = new Set(this.state.countedIds); // 去重键(message.id/requestId),防同一 message 多行 usage 重复累加
     const fileModels = (this.state.fileModels ??= {}); // Codex:文件级「当前模型」(turn_context 声明,跨 tick 持久)
+    const fileServiceTiers = (this.state.fileServiceTiers ??= {});
     for (const f of this.source.listFiles(this.root)) {
       const size = safeSize(f);
       if (size < 0) continue;
       let cur = this.state.cursors[f] ?? 0;
-      if (cur > size) cur = 0; // 截断/轮换 → 从头
+      if (cur > size) {
+        cur = 0;
+        delete fileModels[f];
+        delete fileServiceTiers[f];
+      }
       if (size <= cur) {
         this.state.cursors[f] = cur;
         continue;
@@ -247,14 +262,22 @@ export class UsageLedger {
         if (u.kind === 'model') {
           curModel = u.model; // 此后该文件的用量按这个模型计价
           fileModels[f] = u.model;
+          if (u.serviceTier) fileServiceTiers[f] = u.serviceTier;
+          else delete fileServiceTiers[f]; // 新 turn 没声明档位，不能沿用上一个 turn 的 Fast
           continue;
         }
         if (u.id && seen.has(u.id)) continue; // 同一 message 多行 usage:已计过 → 跳过(成本/喂养都不重复)
         if (u.id) seen.add(u.id);
         // 逐条计价:Claude 行自带 model;Codex 用文件级 curModel。该源不按美元算(pricing=null)则成本恒 0。
         const eff = u.model ?? curModel;
-        const cost = this.source.pricing ? costUSD(u.totals, pricingForModel(this.source.id, eff)) : 0;
-        applyUsage(this.state, u.totals, dayKeyOf(u.ts, this.now()), u.ts, cost);
+        const billing = { ...u.billing, serviceTier: u.billing?.serviceTier ?? fileServiceTiers[f] };
+        const estimate = this.source.pricing ? estimateUsageCost(this.source.id, eff, u.totals, billing) : { cost: 0, warnings: [] };
+        const day = dayKeyOf(u.ts, this.now());
+        applyUsage(this.state, u.totals, day, u.ts, estimate.cost);
+        if (Object.values(u.totals).some(n => n > 0) && estimate.warnings.length) {
+          const byDay = (this.state.costWarningsByDay ??= {});
+          byDay[day] = [...new Set([...(byDay[day] ?? []), ...estimate.warnings])];
+        }
         newOutput += u.totals.output;
         if (eff && eff !== '<synthetic>' && u.ts && (!this.state.lastModelTs || u.ts >= this.state.lastModelTs)) {
           this.state.lastModel = eff; // 最近一笔用量的模型(HUD 名字行)
@@ -283,18 +306,20 @@ export class UsageLedger {
     lastOutputTs: string | null;
     lastQuota: PetQuota | null;
     lastModel: string | null;
+    costWarnings: CostWarning[];
   } {
     const todayKey = dayKeyOf(null, this.now());
     return {
       today: this.state.byDay[todayKey] ?? emptyTotals(),
       allTime: this.state.allTime,
-      // 摄取时逐条按模型单价累计好的成本(不含 cache_read)
+      // 摄取时按请求单价/档位累计，历史旧口径单独提示
       todayCostUSD: this.state.byDayCost?.[todayKey] ?? 0,
       allTimeCostUSD: this.state.allTimeCostUSD ?? 0,
       petStartDate: this.state.petStartDate,
       lastOutputTs: this.state.lastOutputTs,
       lastQuota: this.state.lastQuota ?? null,
-      lastModel: this.state.lastModel ?? null
+      lastModel: this.state.lastModel ?? null,
+      costWarnings: this.state.costWarningsByDay?.[todayKey] ?? []
     };
   }
 }
@@ -340,7 +365,7 @@ export class PetUsageService {
       const newOutput = this.ledger.ingest();
       const now = this.now();
       if (newOutput > 0) this.eating.fed(now);
-      const { today, allTime, todayCostUSD, allTimeCostUSD, petStartDate, lastOutputTs, lastQuota, lastModel } =
+      const { today, allTime, todayCostUSD, allTimeCostUSD, petStartDate, lastOutputTs, lastQuota, lastModel, costWarnings } =
         this.ledger.snapshot();
       const parsed = lastOutputTs ? Date.parse(lastOutputTs) : NaN;
       const lastOutputMs = Number.isNaN(parsed) ? null : parsed;
@@ -348,7 +373,7 @@ export class PetUsageService {
       this.onUsage({
         today,
         allTime,
-        todayCostUSD, // 账本里逐条按模型单价累计(不含 cache_read)
+        todayCostUSD,
         allTimeCostUSD,
         mood,
         lastOutputTs,
@@ -356,7 +381,8 @@ export class PetUsageService {
         source: this.source.id,
         quota: lastQuota,
         showCost: this.source.pricing != null,
-        lastModel
+        lastModel,
+        costWarnings
       });
     } catch (e) {
       log.warn('pet usage tick failed', { source: this.source.id, message: String(e).slice(0, 160) });

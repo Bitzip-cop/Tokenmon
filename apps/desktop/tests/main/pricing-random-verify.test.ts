@@ -9,20 +9,20 @@ import { parseCodexUsage, pricingForModel, DEFAULT_PRICING } from '../../src/sha
 import type { PetSource } from '../../src/main/pet/sources';
 
 // ---- 官方单价($/Mtok),2026-06 核对,独立手写 ----
-const OFFICIAL: Record<string, { in: number; out: number; cw: number }> = {
-  'claude-fable-5': { in: 10, out: 50, cw: 12.5 }, // Fable 5 新顶档(2026-06)
-  'claude-opus-4-8': { in: 5, out: 25, cw: 6.25 },
-  'claude-opus-4-7': { in: 5, out: 25, cw: 6.25 },
-  'claude-sonnet-4-6': { in: 3, out: 15, cw: 3.75 },
-  'claude-haiku-4-5-20251001': { in: 1, out: 5, cw: 1.25 },
-  'claude-opus-4-1': { in: 15, out: 75, cw: 18.75 }, // legacy 档
-  'gpt-5.5': { in: 5, out: 30, cw: 0 },
-  'gpt-5.4': { in: 2.5, out: 15, cw: 0 },
-  'gpt-5.4-mini': { in: 0.75, out: 4.5, cw: 0 }
+const OFFICIAL: Record<string, { in: number; out: number; cw: number; cr: number }> = {
+  'claude-fable-5': { in: 10, out: 50, cw: 12.5, cr: 1 }, // Fable 5 新顶档(2026-06)
+  'claude-opus-4-8': { in: 5, out: 25, cw: 6.25, cr: 0.5 },
+  'claude-opus-4-7': { in: 5, out: 25, cw: 6.25, cr: 0.5 },
+  'claude-sonnet-4-6': { in: 3, out: 15, cw: 3.75, cr: 0.3 },
+  'claude-haiku-4-5-20251001': { in: 1, out: 5, cw: 1.25, cr: 0.1 },
+  'claude-opus-4-1': { in: 15, out: 75, cw: 18.75, cr: 1.5 }, // legacy 档
+  'gpt-5.5': { in: 5, out: 30, cw: 0, cr: 0.5 },
+  'gpt-5.4': { in: 2.5, out: 15, cw: 0, cr: 0.25 },
+  'gpt-5.4-mini': { in: 0.75, out: 4.5, cw: 0, cr: 0.075 }
 };
-// 合计口径与产品一致:in + out + cacheWrite,不含 cacheRead。
-const expectCost = (m: string, t: { in: number; out: number; cw: number }): number =>
-  (t.in * OFFICIAL[m].in + t.out * OFFICIAL[m].out + t.cw * OFFICIAL[m].cw) / 1e6;
+// 四类 token 独立手算；Codex 下方用实际请求输入判断长上下文。
+const expectCost = (m: string, t: { in: number; out: number; cw: number; cr: number }): number =>
+  (t.in * OFFICIAL[m].in + t.out * OFFICIAL[m].out + t.cw * OFFICIAL[m].cw + t.cr * OFFICIAL[m].cr) / 1e6;
 
 const rnd = (max: number): number => Math.floor(Math.random() * max);
 const DAY = new Date().toLocaleDateString('en-CA');
@@ -65,7 +65,7 @@ describe('随机 token 对账:账本算法 vs 官方价目表', () => {
           in: rnd(50_000),
           out: rnd(200_000),
           cw: rnd(100_000),
-          cr: rnd(2_000_000) // 应被排除在成本外
+          cr: rnd(2_000_000) // 缓存读计费
         }))
       )
       .sort(() => Math.random() - 0.5);
@@ -101,7 +101,7 @@ describe('随机 token 对账:账本算法 vs 官方价目表', () => {
     expect(led.snapshot().todayCostUSD).toBeCloseTo(expected, 6);
   });
 
-  it('Codex:turn_context 随机切 5.5/5.4/5.4-mini → 账本成本 = 官方表手算(cached 不计费)', () => {
+  it('Codex:turn_context 随机切 5.5/5.4/5.4-mini → 账本成本 = 官方表手算(cached 计费)', () => {
     const root = mkdtempSync(join(tmpdir(), 'verify-codex-'));
     roots.push(root);
     const file = join(root, 'rollout-1.jsonl');
@@ -136,7 +136,8 @@ describe('随机 token 对账:账本算法 vs 官方价目表', () => {
           }
         })
       );
-      expectedPer[m] += expectCost(m, { in: fresh, out, cw: 0 }); // cached 输入不计费(账本里进 cacheRead、被排除)
+      const long = m !== 'gpt-5.4-mini' && cached + fresh > 272_000;
+      expectedPer[m] += ((fresh * OFFICIAL[m].in + cached * OFFICIAL[m].cr) * (long ? 2 : 1) + out * OFFICIAL[m].out * (long ? 1.5 : 1)) / 1e6;
     }
     appendFileSync(file, lines.join('\n') + '\n');
     led.ingest();
